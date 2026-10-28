@@ -1,0 +1,7 @@
+{
+  "appId": "com.deathzone.game",
+  "appName": "DeathZone",
+  "webDir": "www",
+  "backgroundColor": "#10141a",
+  "server": { "androidScheme": "https" }
+}

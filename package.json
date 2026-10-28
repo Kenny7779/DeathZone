@@ -1,8 +1,17 @@
 {
-  "name": "mmorpg-prototipo",
-  "version": "0.1.0",
-  "description": "Prototipo MMORPG isométrico estilo Albion Online",
+  "name": "deathzone",
+  "version": "0.2.0",
+  "description": "DeathZone: MMORPG isométrico estilo Albion Online (web + Android)",
   "main": "server.js",
-  "scripts": { "start": "node server.js" },
-  "dependencies": { "ws": "^8.18.0" }
+  "scripts": {
+    "start": "node server.js",
+    "build:offline": "node tools/build-offline.js",
+    "build:app": "node tools/build-app.js"
+  },
+  "dependencies": { "ws": "^8.18.0" },
+  "devDependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/cli": "^6.2.0",
+    "@capacitor/core": "^6.2.0"
+  }
 }

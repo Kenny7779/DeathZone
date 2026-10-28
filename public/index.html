@@ -4,6 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Reinos de Plata</title>
+<meta name="theme-color" content="#10141a">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<script src="config.js"></script>
+<script>
+  // Instalable como app desde Chrome (solo en https y fuera de la app empaquetada)
+  if ('serviceWorker' in navigator && location.protocol === 'https:' && location.hostname !== 'localhost') {
+    addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  }
+</script>
 <style>
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
   html,body{margin:0;height:100%;background:#10141a;color:#e8ecf1;font-family:system-ui,sans-serif;overflow:hidden;touch-action:none}
