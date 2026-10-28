@@ -1,0 +1,719 @@
+<title>Reinos de Plata</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+  html,body{margin:0;height:100%;background:#10141a;color:#e8ecf1;font-family:system-ui,sans-serif;overflow:hidden;touch-action:none}
+  canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+  #login{position:fixed;inset:0;display:flex;flex-direction:column;gap:12px;align-items:center;justify-content:center;background:#10141aee;z-index:20}
+  #login h1{margin:0;font-size:28px;letter-spacing:1px}
+  #login input{font-size:18px;padding:12px 14px;border-radius:10px;border:1px solid #3a4658;background:#1a212b;color:#fff;width:240px;text-align:center;user-select:text;-webkit-user-select:text}
+  button{font:inherit;color:#fff;background:#2b3a52;border:1px solid #4a5d7c;border-radius:10px;padding:10px 14px}
+  button:active{background:#3b5278}
+  #hud{position:fixed;top:calc(8px + env(safe-area-inset-top));left:8px;right:8px;display:flex;gap:8px;align-items:flex-start;pointer-events:none;z-index:5}
+  .bars{width:170px}
+  .bar{height:12px;background:#0007;border-radius:6px;overflow:hidden;margin-bottom:4px;border:1px solid #fff2}
+  .bar i{display:block;height:100%}
+  #hp i{background:#d64545}#mp i{background:#3f7fe0}#xp i{background:#d9b13b}
+  #info{font-size:13px;line-height:1.35;text-shadow:0 1px 2px #000}
+  #zone{margin-left:auto;font-size:13px;padding:4px 10px;border-radius:12px;background:#0008}
+  #zone.red{background:#a11d1dcc}
+  #chatlog{position:fixed;left:8px;bottom:calc(150px + env(safe-area-inset-bottom));width:min(60vw,320px);max-height:110px;overflow:hidden;font-size:12px;text-shadow:0 1px 2px #000;pointer-events:none;z-index:5}
+  #chatlog div{opacity:.9}
+  #pad{position:fixed;left:calc(14px + env(safe-area-inset-left));bottom:calc(14px + env(safe-area-inset-bottom));width:130px;height:130px;border-radius:50%;background:#ffffff14;border:2px solid #ffffff33;z-index:6;touch-action:none}
+  #knob{position:absolute;width:56px;height:56px;border-radius:50%;background:#ffffff55;left:37px;top:37px}
+  #btns{position:fixed;right:calc(10px + env(safe-area-inset-right));bottom:calc(10px + env(safe-area-inset-bottom));width:210px;height:160px;z-index:6}
+  #btns button{position:absolute;width:60px;height:60px;border-radius:50%;padding:0;font-size:12px;background:#2b3a52cc;touch-action:none}
+  #topbtns{position:fixed;right:8px;top:calc(48px + env(safe-area-inset-top));display:flex;gap:6px;z-index:7}
+  #topbtns button{padding:6px 10px;font-size:13px}
+  #panel{position:fixed;inset:50px 10px 10px 10px;background:#161c26f2;border:1px solid #3a4658;border-radius:14px;z-index:15;display:none;flex-direction:column;max-width:560px;margin:0 auto}
+  #panel .tabs{display:flex;gap:6px;padding:8px}
+  #panel .tabs button.on{background:#4a6fa8}
+  #pbody{flex:1;overflow:auto;padding:8px 12px;font-size:14px;user-select:text;-webkit-user-select:text}
+  .row{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #ffffff12}
+  .row small{color:#9aa7b8}
+  #pbody input,#pbody select{font-size:14px;padding:6px;border-radius:8px;border:1px solid #3a4658;background:#1a212b;color:#fff;width:80px}
+  #chatbox{position:fixed;left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom));display:none;z-index:25}
+  #chatbox input{width:100%;font-size:16px;padding:10px;border-radius:10px;border:1px solid #4a5d7c;background:#1a212b;color:#fff;user-select:text;-webkit-user-select:text}
+  #toast{position:fixed;top:40%;left:50%;transform:translate(-50%,-50%);background:#000b;padding:10px 16px;border-radius:12px;z-index:30;display:none;text-align:center}
+</style>
+
+<canvas id="c"></canvas>
+
+<div id="login">
+  <h1>⚔️ Reinos de Plata</h1>
+  <div style="opacity:.8;font-size:14px;text-align:center;max-width:280px">Recolecta, fabrica, comercia y sobrevive en la zona de la muerte. (Modo sin conexión: juegas tú solo y se guarda en este dispositivo.)</div>
+  <input id="name" maxlength="12" placeholder="Tu nombre" autocomplete="off">
+  <button id="join">Entrar</button>
+  <div id="loginErr" style="color:#ff8a8a;font-size:13px"></div>
+</div>
+
+<div id="hud">
+  <div class="bars">
+    <div class="bar" id="hp"><i style="width:100%"></i></div>
+    <div class="bar" id="mp"><i style="width:100%"></i></div>
+    <div class="bar" id="xp"><i style="width:0%"></i></div>
+  </div>
+  <div id="info"></div>
+  <div id="zone">Ciudad segura</div>
+</div>
+<div id="topbtns"><button id="bBag">🎒 Menú</button><button id="bChat">💬</button></div>
+<div id="chatlog"></div>
+
+<div id="pad"><div id="knob"></div></div>
+<div id="btns">
+  <button id="bAtk"  style="right:0;bottom:50px;width:76px;height:76px;font-size:14px">⚔️<br>Atacar</button>
+  <button id="bSk"   style="right:84px;bottom:90px">🌀<br>Tajo</button>
+  <button id="bDash" style="right:92px;bottom:20px">💨<br>Dash</button>
+  <button id="bGat"  style="right:150px;bottom:55px">⛏️<br>Recoger</button>
+  <button id="bPot"  style="right:0;bottom:130px;width:48px;height:48px">🧪</button>
+</div>
+
+<div id="panel">
+  <div class="tabs">
+    <button data-tab="inv" class="on">Inventario</button>
+    <button data-tab="craft">Crafteo</button>
+    <button data-tab="market">Mercado</button>
+    <button id="pclose" style="margin-left:auto">✕</button>
+  </div>
+  <div id="pbody"></div>
+</div>
+<div id="chatbox"><input id="chatin" maxlength="100" placeholder="Escribe y pulsa Enter..."></div>
+<div id="toast"></div>
+
+<script>
+(function(){
+const W = 100, H = 100;      // tamaño del mundo en tiles
+const SAFE_X = 30;           // x < SAFE_X = ciudad segura; x >= SAFE_X = zona de la muerte (PvP + full loot)
+const TICK = 50;             // 20 Hz
+const SPEED = 4.5;           // tiles/seg
+
+const store = { get(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }, set(k,v){ try { localStorage.setItem(k,v); } catch(e){} } };
+let accounts = {}, listings = [];
+try { const d = JSON.parse(store.get('rp_offline_data') || '{}'); accounts = d.accounts || {}; listings = d.listings || []; nextId = d.nextId || 1; } catch(e){}
+function save(){ store.set('rp_offline_data', JSON.stringify({ accounts, listings, nextId })); }
+setInterval(save, 10000);
+addEventListener('pagehide', save);
+function getAcct(name){ if (!accounts[name]) accounts[name] = { name, inv: {}, silver: 20, xp: 0, lvl: 1 }; return accounts[name]; }
+const RECIPES = {
+  espada:   { wood: 4, ore: 3 },     // +12 de daño
+  armadura: { stone: 6, ore: 2 },    // -30% daño recibido
+  pocion:   { wood: 3, stone: 1 },   // cura 60 HP
+};
+const ITEMS = ['wood', 'stone', 'ore', 'espada', 'armadura', 'pocion'];
+
+// ---------- utilidades ----------
+let seed = 1337;
+const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+const inRed = (x) => x >= SAFE_X;
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+let nextId = 1;
+const newId = () => nextId++;
+
+
+// ---------- mundo ----------
+const resources = [];
+function spawnRes(type, n, minX, maxX) {
+  for (let i = 0; i < n; i++) {
+    resources.push({
+      id: newId(), t: type,
+      x: minX + rnd() * (maxX - minX), y: 2 + rnd() * (H - 4),
+      hp: type === 'ore' ? 4 : 3, alive: true, respawn: 0,
+    });
+  }
+}
+spawnRes('tree', 110, 3, W - 2);
+spawnRes('rock', 70, 3, W - 2);
+spawnRes('ore', 60, SAFE_X + 3, W - 2);
+
+const mobs = [];
+for (let i = 0; i < 28; i++) {
+  const x = SAFE_X + 8 + rnd() * (W - SAFE_X - 12), y = 4 + rnd() * (H - 8);
+  mobs.push({ id: newId(), x, y, hx: x, hy: y, hp: 60, mhp: 60, alive: true, respawn: 0, cd: 0 });
+}
+const bags = []; // bolsas de loot {id,x,y,items,silver,expires}
+const players = new Map(); // ws -> player
+let events = [];
+
+const spawnPoint = () => ({ x: 8 + rnd() * 4, y: 48 + rnd() * 4 });
+
+// ---------- jugador ----------
+const mhpOf = (a) => 100 + (a.lvl - 1) * 10;
+const mmpOf = (a) => 50 + (a.lvl - 1) * 5;
+const baseDmg = (p) => 10 + p.acct.lvl * 2 + ((p.acct.inv.espada || 0) > 0 ? 12 : 0);
+
+function send(ws, obj) { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); }
+function broadcast(obj) { const s = JSON.stringify(obj); for (const ws of players.keys()) if (ws.readyState === 1) ws.send(s); }
+
+function addXp(p, n) {
+  const a = p.acct; a.xp += n;
+  while (a.xp >= a.lvl * 40) { a.xp -= a.lvl * 40; a.lvl++; p.hp = mhpOf(a); p.mp = mmpOf(a); }
+  p.dirty = true;
+}
+function addItem(a, item, n) { a.inv[item] = (a.inv[item] || 0) + n; if (a.inv[item] <= 0) delete a.inv[item]; }
+
+function respawn(p) {
+  const s = spawnPoint(); p.x = s.x; p.y = s.y;
+  p.hp = mhpOf(p.acct); p.mp = mmpOf(p.acct); p.dirty = true;
+}
+function killPlayer(p, killer) {
+  const a = p.acct;
+  if (inRed(p.x)) {
+    const loot = { ...a.inv };
+    const silver = Math.floor(a.silver / 2);
+    if (Object.keys(loot).length || silver) {
+      bags.push({ id: newId(), x: p.x, y: p.y, items: loot, silver, expires: Date.now() + 120000 });
+    }
+    a.inv = {}; a.silver -= silver;
+  }
+  events.push({ t: 'death', x: p.x, y: p.y });
+  send(p.ws, { t: 'msg', m: 'Has muerto. Has perdido tu inventario en la zona de la muerte.' });
+  if (killer && killer.acct) addXp(killer, 20);
+  respawn(p);
+}
+function hurtPlayer(p, amt, killer) {
+  if (p.acct.inv.armadura > 0) amt = Math.round(amt * 0.7);
+  p.hp -= amt; p.dirty = true;
+  events.push({ t: 'dmg', x: p.x, y: p.y, v: amt });
+  if (p.hp <= 0) killPlayer(p, killer);
+}
+function hurtMob(m, amt, killer) {
+  m.hp -= amt;
+  events.push({ t: 'dmg', x: m.x, y: m.y, v: amt });
+  if (m.hp <= 0) {
+    m.alive = false; m.respawn = Date.now() + 15000;
+    const s = 5 + Math.floor(rnd() * 11);
+    killer.acct.silver += s; addXp(killer, 8); killer.dirty = true;
+  }
+}
+function enemiesNear(p, r) {
+  const out = [];
+  for (const m of mobs) if (m.alive && dist(p, m) <= r) out.push({ kind: 'mob', e: m, d: dist(p, m) });
+  if (inRed(p.x)) {
+    for (const q of players.values()) {
+      if (q !== p && inRed(q.x) && dist(p, q) <= r) out.push({ kind: 'pl', e: q, d: dist(p, q) });
+    }
+  }
+  return out.sort((a, b) => a.d - b.d);
+}
+function hit(p, target, dmg) {
+  if (target.kind === 'mob') hurtMob(target.e, dmg, p); else hurtPlayer(target.e, dmg, p);
+}
+
+// ---------- mensajes del cliente ----------
+const lastChat = new WeakMap();
+function handle(ws, p, msg) {
+  const now = Date.now();
+  switch (msg.t) {
+    case 'in': {
+      let dx = +msg.dx || 0, dy = +msg.dy || 0;
+      const l = Math.hypot(dx, dy);
+      if (l > 1) { dx /= l; dy /= l; }
+      p.dx = dx; p.dy = dy; p.lastIn = now;
+      if (l > 0.1) { p.fx = dx / (l || 1); p.fy = dy / (l || 1); }
+      break;
+    }
+    case 'atk': {
+      if (now < p.cd.atk) return;
+      p.cd.atk = now + 500;
+      const t = enemiesNear(p, 2)[0];
+      events.push({ t: 'swing', x: p.x, y: p.y, id: p.id });
+      if (t) hit(p, t, baseDmg(p));
+      break;
+    }
+    case 'sk': { // Tajo: área
+      if (now < p.cd.sk || p.mp < 20) return;
+      p.cd.sk = now + 3000; p.mp -= 20; p.dirty = true;
+      events.push({ t: 'slash', x: p.x, y: p.y });
+      for (const t of enemiesNear(p, 2.8)) hit(p, t, baseDmg(p) * 2);
+      break;
+    }
+    case 'dash': {
+      if (now < p.cd.dash || p.mp < 15) return;
+      p.cd.dash = now + 4000; p.mp -= 15; p.dirty = true;
+      p.x = clamp(p.x + p.fx * 4, 0.5, W - 0.5); p.y = clamp(p.y + p.fy * 4, 0.5, H - 0.5);
+      break;
+    }
+    case 'gather': {
+      if (now < p.cd.gather) return;
+      p.cd.gather = now + 600;
+      // 1) bolsa de loot cercana
+      const bi = bags.findIndex((b) => dist(p, b) < 1.8);
+      if (bi >= 0) {
+        const b = bags.splice(bi, 1)[0];
+        for (const k in b.items) addItem(p.acct, k, b.items[k]);
+        p.acct.silver += b.silver; p.dirty = true;
+        send(ws, { t: 'msg', m: 'Recogiste una bolsa de botín.' });
+        return;
+      }
+      // 2) recurso cercano
+      let best = null, bd = 1.9;
+      for (const r of resources) if (r.alive && dist(p, r) < bd) { best = r; bd = dist(p, r); }
+      if (!best) return;
+      best.hp--;
+      events.push({ t: 'chop', x: best.x, y: best.y });
+      if (best.hp <= 0) {
+        best.alive = false; best.respawn = now + 30000;
+        const item = best.t === 'tree' ? 'wood' : best.t === 'rock' ? 'stone' : 'ore';
+        addItem(p.acct, item, 1 + Math.floor(rnd() * 2));
+        addXp(p, 2); p.dirty = true;
+      }
+      break;
+    }
+    case 'craft': {
+      const r = RECIPES[msg.item]; if (!r) return;
+      for (const k in r) if ((p.acct.inv[k] || 0) < r[k]) return send(ws, { t: 'msg', m: 'Te faltan materiales.' });
+      if ((msg.item === 'espada' || msg.item === 'armadura') && p.acct.inv[msg.item] > 0)
+        return send(ws, { t: 'msg', m: 'Ya tienes ese equipo.' });
+      for (const k in r) addItem(p.acct, k, -r[k]);
+      addItem(p.acct, msg.item, 1); addXp(p, 3); p.dirty = true;
+      send(ws, { t: 'msg', m: 'Fabricaste: ' + msg.item });
+      break;
+    }
+    case 'potion': {
+      if (now < p.cd.pot || !(p.acct.inv.pocion > 0)) return;
+      p.cd.pot = now + 1000; addItem(p.acct, 'pocion', -1);
+      p.hp = Math.min(mhpOf(p.acct), p.hp + 60); p.dirty = true;
+      events.push({ t: 'heal', x: p.x, y: p.y, v: 60 });
+      break;
+    }
+    case 'sell': {
+      if (inRed(p.x)) return send(ws, { t: 'msg', m: 'El mercado solo funciona en la ciudad segura.' });
+      const item = msg.item, qty = Math.floor(+msg.qty), price = Math.floor(+msg.price);
+      if (!ITEMS.includes(item) || !(qty > 0) || !(price > 0) || price > 1e6) return;
+      if ((p.acct.inv[item] || 0) < qty) return send(ws, { t: 'msg', m: 'No tienes suficiente.' });
+      addItem(p.acct, item, -qty);
+      listings.push({ id: newId(), seller: p.acct.name, item, qty, price });
+      p.dirty = true; broadcast({ t: 'market', list: listings });
+      break;
+    }
+    case 'buy': {
+      if (inRed(p.x)) return send(ws, { t: 'msg', m: 'El mercado solo funciona en la ciudad segura.' });
+      const i = listings.findIndex((l) => l.id === msg.id); if (i < 0) return;
+      const l = listings[i];
+      if (p.acct.silver < l.price) return send(ws, { t: 'msg', m: 'No tienes plata suficiente.' });
+      listings.splice(i, 1);
+      p.acct.silver -= l.price; addItem(p.acct, l.item, l.qty);
+      const seller = getAcct(l.seller);
+      seller.silver += Math.floor(l.price * 0.95); // 5% de impuesto
+      for (const q of players.values()) if (q.acct === seller) q.dirty = true;
+      p.dirty = true; broadcast({ t: 'market', list: listings });
+      break;
+    }
+    case 'cancel': {
+      const i = listings.findIndex((l) => l.id === msg.id && l.seller === p.acct.name); if (i < 0) return;
+      const l = listings.splice(i, 1)[0]; addItem(p.acct, l.item, l.qty);
+      p.dirty = true; broadcast({ t: 'market', list: listings });
+      break;
+    }
+    case 'chat': {
+      if (now - (lastChat.get(ws) || 0) < 700) return;
+      lastChat.set(ws, now);
+      const m = String(msg.m || '').slice(0, 100).trim(); if (!m) return;
+      broadcast({ t: 'chat', n: p.acct.name, m });
+      break;
+    }
+  }
+}
+
+
+// Conexión simulada: el cliente cree que habla con un WebSocket.
+function serverConnect(ws){
+  let p = null;
+  return (raw) => {
+    let msg; try { msg = JSON.parse(raw); } catch(e){ return; }
+    if (!p) {
+      if (msg.t !== 'join') return;
+      const name = String(msg.name || '').replace(/[^\p{L}\p{N}_\- ]/gu, '').trim().slice(0, 12);
+      if (!name) return send(ws, { t: 'err', m: 'Nombre inválido' });
+      const acct = getAcct(name), s = spawnPoint();
+      p = { ws, id: newId(), acct, x: s.x, y: s.y, hp: mhpOf(acct), mp: mmpOf(acct), dx: 0, dy: 0, fx: 1, fy: 0,
+        lastIn: Date.now(), cd: { atk: 0, sk: 0, dash: 0, gather: 0, pot: 0 }, dirty: true };
+      players.set(ws, p);
+      send(ws, { t: 'init', id: p.id, W, H, SAFE_X, recipes: RECIPES, items: ITEMS, res: resources.map((r) => ({ id: r.id, t: r.t, x: r.x, y: r.y })) });
+      send(ws, { t: 'market', list: listings });
+      return;
+    }
+    handle(ws, p, msg);
+  };
+}
+// ---------- bucle principal ----------
+let tickN = 0, last = Date.now();
+setInterval(() => {
+  const now = Date.now(), dt = Math.min(0.1, (now - last) / 1000); last = now; tickN++;
+
+  for (const p of players.values()) {
+    if (now - p.lastIn > 1000) { p.dx = 0; p.dy = 0; }
+    p.x = clamp(p.x + p.dx * SPEED * dt, 0.5, W - 0.5);
+    p.y = clamp(p.y + p.dy * SPEED * dt, 0.5, H - 0.5);
+    const mh = mhpOf(p.acct), mm = mmpOf(p.acct);
+    if (p.hp < mh) p.hp = Math.min(mh, p.hp + 1 * dt);
+    if (p.mp < mm) p.mp = Math.min(mm, p.mp + 3 * dt);
+  }
+
+  for (const m of mobs) {
+    if (!m.alive) { if (now >= m.respawn) { m.alive = true; m.hp = m.mhp; m.x = m.hx; m.y = m.hy; } continue; }
+    let target = null, td = 7;
+    for (const p of players.values()) { const d = dist(m, p); if (d < td && inRed(p.x)) { td = d; target = p; } }
+    if (target && dist(m, { x: m.hx, y: m.hy }) < 14) {
+      if (td > 1.2) { m.x += ((target.x - m.x) / td) * 3 * dt; m.y += ((target.y - m.y) / td) * 3 * dt; }
+      else if (now >= m.cd) { m.cd = now + 1000; hurtPlayer(target, 8, null); }
+    } else {
+      const hd = dist(m, { x: m.hx, y: m.hy });
+      if (hd > 0.5) { m.x += ((m.hx - m.x) / hd) * 2 * dt; m.y += ((m.hy - m.y) / hd) * 2 * dt; }
+    }
+  }
+
+  for (const r of resources) if (!r.alive && now >= r.respawn) { r.alive = true; r.hp = r.t === 'ore' ? 4 : 3; }
+  for (let i = bags.length - 1; i >= 0; i--) if (now > bags[i].expires) bags.splice(i, 1);
+
+  if (tickN % 2 === 0 && players.size) { // 10 Hz
+    const snap = {
+      t: 's',
+      p: [...players.values()].map((p) => ({ id: p.id, n: p.acct.name, x: +p.x.toFixed(2), y: +p.y.toFixed(2), hp: Math.round(p.hp), mh: mhpOf(p.acct), l: p.acct.lvl, sw: p.acct.inv.espada > 0 ? 1 : 0 })),
+      m: mobs.filter((m) => m.alive).map((m) => ({ id: m.id, x: +m.x.toFixed(2), y: +m.y.toFixed(2), hp: m.hp, mh: m.mhp })),
+      d: resources.filter((r) => !r.alive).map((r) => r.id),
+      b: bags.map((b) => ({ id: b.id, x: b.x, y: b.y })),
+      e: events,
+    };
+    events = [];
+    broadcast(snap);
+    for (const [ws, p] of players) {
+      if (p.dirty) {
+        p.dirty = false;
+        send(ws, { t: 'me', inv: p.acct.inv, silver: p.acct.silver, xp: p.acct.xp, lvl: p.acct.lvl,
+          hp: Math.round(p.hp), mh: mhpOf(p.acct), mp: Math.round(p.mp), mm: mmpOf(p.acct), nx: p.acct.lvl * 40 });
+      }
+    }
+  }
+  // mp/hp cambian de forma continua: refrescar 'me' cada 1s
+  if (tickN % 20 === 0) for (const p of players.values()) p.dirty = true;
+}, TICK);
+
+
+window.WebSocket = function(){
+  const c = { readyState: 0, onopen: null, onclose: null, onmessage: null };
+  const s = { readyState: 1, send(d){ setTimeout(() => c.onmessage && c.onmessage({ data: d }), 0); },
+    close(){ c.readyState = 3; c.onclose && c.onclose(); } };
+  const handler = serverConnect(s);
+  c.send = (raw) => handler(raw);
+  c.close = () => { players.delete(s); };
+  setTimeout(() => { c.readyState = 1; c.onopen && c.onopen(); }, 0);
+  return c;
+};
+})();
+</script>
+<script>
+// ================== Configuración ==================
+const TW = 64, TH = 32;
+const NAMES = { wood: 'Madera', stone: 'Piedra', ore: 'Mineral', espada: 'Espada', armadura: 'Armadura', pocion: 'Poción' };
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+let DPR = 1, VW = 0, VH = 0;
+function resize() { DPR = Math.min(2, window.devicePixelRatio || 1); VW = innerWidth; VH = innerHeight; cv.width = VW * DPR; cv.height = VH * DPR; }
+addEventListener('resize', resize); resize();
+
+// ================== Estado ==================
+let ws = null, myId = null, W = 100, H = 100, SAFE_X = 30, recipes = {}, items = [];
+let resList = [], deadRes = new Set();
+const players = new Map(), mobs = new Map();
+let bags = [], fx = [], me = { inv: {}, silver: 0, xp: 0, lvl: 1, hp: 100, mh: 100, mp: 50, mm: 50, nx: 40 };
+let market = [], zoomK = 1;
+let cd = { sk: 0, dash: 0, atk: 0 };
+
+const iso = (x, y) => ({ x: (x - y) * TW / 2, y: (x + y) * TH / 2 });
+function toast(m, t = 2200) { const e = document.getElementById('toast'); e.textContent = m; e.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(() => e.style.display = 'none', t); }
+
+// ================== Conexión ==================
+function connect(name) {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url = window.SERVER_URL || (proto + '//' + location.host);
+  ws = new WebSocket(url);
+  ws.onopen = () => ws.send(JSON.stringify({ t: 'join', name }));
+  ws.onclose = () => { document.getElementById('login').style.display = 'flex'; document.getElementById('loginErr').textContent = 'Desconectado del servidor'; };
+  ws.onmessage = (ev) => onMsg(JSON.parse(ev.data));
+}
+const send = (o) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); };
+
+function onMsg(m) {
+  switch (m.t) {
+    case 'init':
+      myId = m.id; W = m.W; H = m.H; SAFE_X = m.SAFE_X; recipes = m.recipes; items = m.items; resList = m.res;
+      document.getElementById('login').style.display = 'none'; break;
+    case 'err': document.getElementById('loginErr').textContent = m.m; document.getElementById('login').style.display = 'flex'; break;
+    case 'me': me = m; hud(); if (panelOpen) renderPanel(); break;
+    case 'market': market = m.list; if (panelOpen && tab === 'market') renderPanel(); break;
+    case 'msg': toast(m.m); break;
+    case 'chat': {
+      const d = document.createElement('div'); d.textContent = m.n + ': ' + m.m;
+      const l = document.getElementById('chatlog'); l.appendChild(d); while (l.children.length > 6) l.removeChild(l.firstChild);
+      setTimeout(() => d.remove(), 12000); break;
+    }
+    case 's': {
+      const seen = new Set();
+      for (const p of m.p) {
+        seen.add(p.id); let o = players.get(p.id);
+        if (!o) { o = { rx: p.x, ry: p.y }; players.set(p.id, o); }
+        Object.assign(o, p);
+      }
+      for (const id of players.keys()) if (!seen.has(id)) players.delete(id);
+      const seenM = new Set();
+      for (const q of m.m) {
+        seenM.add(q.id); let o = mobs.get(q.id);
+        if (!o) { o = { rx: q.x, ry: q.y }; mobs.set(q.id, o); }
+        Object.assign(o, q);
+      }
+      for (const id of mobs.keys()) if (!seenM.has(id)) mobs.delete(id);
+      deadRes = new Set(m.d); bags = m.b;
+      for (const e of m.e) fx.push({ ...e, born: performance.now() });
+      break;
+    }
+  }
+}
+
+// ================== Entrada ==================
+let kx = 0, ky = 0, jx = 0, jy = 0, lastSent = '';
+const keys = {};
+addEventListener('keydown', (e) => {
+  if (document.activeElement && document.activeElement.tagName === 'INPUT') {
+    if (e.key === 'Enter' && document.activeElement.id === 'chatin') { const v = e.target.value.trim(); if (v) send({ t: 'chat', m: v }); e.target.value = ''; closeChat(); }
+    if (e.key === 'Escape') closeChat();
+    return;
+  }
+  keys[e.key.toLowerCase()] = true;
+  const k = e.key.toLowerCase();
+  if (k === ' ' || k === 'j') act('atk'); if (k === 'k') act('sk'); if (k === 'l') act('dash');
+  if (k === 'e') act('gather'); if (k === 'q') act('potion'); if (k === 'b') togglePanel(); if (k === 'enter') openChat();
+});
+addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+function act(a) {
+  const n = performance.now();
+  if (a === 'atk') send({ t: 'atk' });
+  if (a === 'sk') { send({ t: 'sk' }); cd.sk = n + 3000; }
+  if (a === 'dash') { send({ t: 'dash' }); cd.dash = n + 4000; }
+  if (a === 'gather') send({ t: 'gather' });
+  if (a === 'potion') send({ t: 'potion' });
+}
+// pantalla -> mundo
+function scr2world(sx, sy) { const x = (sx / (TW / 2) + sy / (TH / 2)) / 2, y = (sy / (TH / 2) - sx / (TW / 2)) / 2; const l = Math.hypot(x, y) || 1; return [x / l, y / l]; }
+function updateInput() {
+  let sx = (keys['d'] || keys['arrowright'] ? 1 : 0) - (keys['a'] || keys['arrowleft'] ? 1 : 0);
+  let sy = (keys['s'] || keys['arrowdown'] ? 1 : 0) - (keys['w'] || keys['arrowup'] ? 1 : 0);
+  if (!sx && !sy) { sx = jx; sy = jy; }
+  let dx = 0, dy = 0;
+  if (Math.hypot(sx, sy) > 0.15) { const l = Math.hypot(sx, sy), mag = Math.min(1, l); [dx, dy] = scr2world(sx / l, sy / l); dx *= mag; dy *= mag; }
+  const s = dx.toFixed(2) + ',' + dy.toFixed(2);
+  if (s !== lastSent) { lastSent = s; send({ t: 'in', dx, dy }); }
+}
+setInterval(() => { updateInput(); if (lastSent !== '0.00,0.00') send({ t: 'in', dx: +lastSent.split(',')[0], dy: +lastSent.split(',')[1] }); }, 200);
+
+// joystick táctil
+const pad = document.getElementById('pad'), knob = document.getElementById('knob');
+let padId = null;
+function padMove(e) {
+  const r = pad.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  let dx = e.clientX - cx, dy = e.clientY - cy; const m = r.width / 2, l = Math.hypot(dx, dy);
+  if (l > m) { dx = dx / l * m; dy = dy / l * m; }
+  jx = dx / m; jy = dy / m; knob.style.transform = `translate(${dx}px,${dy}px)`;
+}
+pad.addEventListener('pointerdown', (e) => { padId = e.pointerId; pad.setPointerCapture(padId); padMove(e); });
+pad.addEventListener('pointermove', (e) => { if (e.pointerId === padId) padMove(e); });
+const padEnd = (e) => { if (e.pointerId === padId) { padId = null; jx = jy = 0; knob.style.transform = ''; } };
+pad.addEventListener('pointerup', padEnd); pad.addEventListener('pointercancel', padEnd);
+
+// botones de acción (mantener pulsado = repetir)
+function bind(id, a, repeat) {
+  const b = document.getElementById(id); let t = null;
+  const start = (e) => { e.preventDefault(); act(a); if (repeat) t = setInterval(() => act(a), 250); };
+  const stop = () => { clearInterval(t); t = null; };
+  b.addEventListener('pointerdown', start); b.addEventListener('pointerup', stop); b.addEventListener('pointerleave', stop); b.addEventListener('pointercancel', stop);
+}
+bind('bAtk', 'atk', true); bind('bSk', 'sk'); bind('bDash', 'dash'); bind('bGat', 'gather', true); bind('bPot', 'potion');
+
+function openChat() { const b = document.getElementById('chatbox'); b.style.display = 'block'; document.getElementById('chatin').focus(); }
+function closeChat() { document.getElementById('chatbox').style.display = 'none'; document.getElementById('chatin').blur(); }
+document.getElementById('bChat').onclick = openChat;
+document.getElementById('bBag').onclick = () => togglePanel();
+
+// ================== Panel (inventario / crafteo / mercado) ==================
+let panelOpen = false, tab = 'inv';
+const panel = document.getElementById('panel'), pbody = document.getElementById('pbody');
+function togglePanel() { panelOpen = !panelOpen; panel.style.display = panelOpen ? 'flex' : 'none'; if (panelOpen) renderPanel(); }
+document.getElementById('pclose').onclick = togglePanel;
+panel.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => { tab = b.dataset.tab; panel.querySelectorAll('[data-tab]').forEach((x) => x.classList.toggle('on', x === b)); renderPanel(); });
+function renderPanel() {
+  const keep = pbody.scrollTop; let h = '';
+  const inv = me.inv || {};
+  if (tab === 'inv') {
+    h += `<div class="row"><b>Plata</b><span>🪙 ${me.silver}</span></div>`;
+    const ks = Object.keys(inv);
+    h += ks.length ? ks.map((k) => `<div class="row"><span>${NAMES[k] || k}</span><b>x${inv[k]}</b></div>`).join('') : '<p><small>Inventario vacío. Recoge madera, piedra y mineral (⛏️).</small></p>';
+    h += '<p><small>La espada da +12 de daño y la armadura reduce el daño un 30%. En la zona de la muerte, si mueres pierdes TODO.</small></p>';
+  } else if (tab === 'craft') {
+    for (const k in recipes) {
+      const r = recipes[k], ok = Object.keys(r).every((m) => (inv[m] || 0) >= r[m]);
+      h += `<div class="row"><div><b>${NAMES[k]}</b><br><small>${Object.keys(r).map((m) => `${NAMES[m]} ${inv[m] || 0}/${r[m]}`).join(' · ')}</small></div><button data-craft="${k}" ${ok ? '' : 'disabled style="opacity:.4"'}>Fabricar</button></div>`;
+    }
+  } else {
+    const inSafe = (players.get(myId) || { x: 0 }).x < SAFE_X;
+    if (!inSafe) h += '<p style="color:#ff9a9a">El mercado solo está disponible en la ciudad segura (zona verde).</p>';
+    h += '<b>Vender</b><div class="row"><select id="sItem">' + Object.keys(inv).map((k) => `<option value="${k}">${NAMES[k] || k} (${inv[k]})</option>`).join('') + '</select><input id="sQty" type="number" min="1" value="1"><input id="sPrice" type="number" min="1" placeholder="Precio"><button id="sGo">Listar</button></div>';
+    h += '<b>En venta</b>';
+    h += market.length ? market.map((l) => `<div class="row"><div>${NAMES[l.item]} x${l.qty}<br><small>${l.seller}</small></div><span>🪙 ${l.price}</span>` +
+      (l.seller === window.myName ? `<button data-cancel="${l.id}">Retirar</button>` : `<button data-buy="${l.id}">Comprar</button>`) + '</div>').join('') : '<p><small>No hay anuncios.</small></p>';
+  }
+  pbody.innerHTML = h; pbody.scrollTop = keep;
+  pbody.querySelectorAll('[data-craft]').forEach((b) => b.onclick = () => send({ t: 'craft', item: b.dataset.craft }));
+  pbody.querySelectorAll('[data-buy]').forEach((b) => b.onclick = () => send({ t: 'buy', id: +b.dataset.buy }));
+  pbody.querySelectorAll('[data-cancel]').forEach((b) => b.onclick = () => send({ t: 'cancel', id: +b.dataset.cancel }));
+  const go = document.getElementById('sGo');
+  if (go) go.onclick = () => send({ t: 'sell', item: document.getElementById('sItem').value, qty: +document.getElementById('sQty').value, price: +document.getElementById('sPrice').value });
+}
+
+function hud() {
+  document.querySelector('#hp i').style.width = Math.max(0, me.hp / me.mh * 100) + '%';
+  document.querySelector('#mp i').style.width = Math.max(0, me.mp / me.mm * 100) + '%';
+  document.querySelector('#xp i').style.width = (me.xp / me.nx * 100) + '%';
+  document.getElementById('info').innerHTML = `Nv ${me.lvl} · HP ${me.hp}/${me.mh} · MP ${me.mp}<br>🪙 ${me.silver}`;
+}
+
+// ================== Login ==================
+document.getElementById('join').onclick = () => {
+  const n = document.getElementById('name').value.trim(); if (!n) return;
+  window.myName = n.replace(/[^\p{L}\p{N}_\- ]/gu, '').trim().slice(0, 12);
+  try{localStorage.setItem('rp_name', n);}catch(e){} connect(n);
+};
+try{document.getElementById('name').value = localStorage.getItem('rp_name') || '';}catch(e){}
+document.getElementById('name').addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('join').click(); });
+
+// ================== Render ==================
+function hashColor(s) { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) | 0; return `hsl(${Math.abs(h) % 360},65%,55%)`; }
+function diamond(sx, sy, fill) {
+  ctx.beginPath(); ctx.moveTo(sx, sy - TH / 2); ctx.lineTo(sx + TW / 2, sy); ctx.lineTo(sx, sy + TH / 2); ctx.lineTo(sx - TW / 2, sy); ctx.closePath();
+  ctx.fillStyle = fill; ctx.fill();
+}
+function bar(sx, sy, w, p, col) { ctx.fillStyle = '#000a'; ctx.fillRect(sx - w / 2, sy, w, 5); ctx.fillStyle = col; ctx.fillRect(sx - w / 2, sy, w * Math.max(0, Math.min(1, p)), 5); }
+
+let lastT = performance.now();
+function frame(t) {
+  const dt = Math.min(0.1, (t - lastT) / 1000); lastT = t;
+  updateInput();
+  const k = 1 - Math.pow(0.0005, dt); // suavizado
+  for (const o of players.values()) { o.rx += (o.x - o.rx) * k; o.ry += (o.y - o.ry) * k; }
+  for (const o of mobs.values()) { o.rx += (o.x - o.rx) * k; o.ry += (o.y - o.ry) * k; }
+  draw(t);
+  requestAnimationFrame(frame);
+}
+
+function draw(t) {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.fillStyle = '#10141a'; ctx.fillRect(0, 0, VW, VH);
+  const mp = players.get(myId);
+  if (!mp) return;
+  const sc = Math.max(0.7, Math.min(1.3, Math.min(VW, VH) / 520)) * zoomK;
+  const cam = iso(mp.rx, mp.ry);
+  ctx.save(); ctx.translate(VW / 2, VH / 2); ctx.scale(sc, sc); ctx.translate(-cam.x, -cam.y);
+
+  // tiles visibles
+  const R = Math.ceil(Math.max(VW, VH) / sc / TH) + 3;
+  const cx = Math.floor(mp.rx), cy = Math.floor(mp.ry);
+  for (let ty = cy - R; ty <= cy + R; ty++) for (let tx = cx - R; tx <= cx + R; tx++) {
+    if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+    const p = iso(tx + 0.5, ty + 0.5); const sx = p.x, sy = p.y;
+    if (Math.abs(sx - cam.x) > VW / sc / 2 + TW || Math.abs(sy - cam.y) > VH / sc / 2 + TH) continue;
+    const chk = (tx + ty) & 1;
+    let col;
+    if (tx < SAFE_X) col = chk ? '#3f7d45' : '#437f4a'; else col = chk ? '#6b3b36' : '#703f3a';
+    if (tx === SAFE_X) col = '#c9a227';
+    diamond(sx, sy, col);
+  }
+
+  // entidades ordenadas por profundidad
+  const ents = [];
+  for (const r of resList) if (!deadRes.has(r.id)) ents.push({ z: r.x + r.y, k: 'res', o: r });
+  for (const b of bags) ents.push({ z: b.x + b.y, k: 'bag', o: b });
+  for (const m of mobs.values()) ents.push({ z: m.rx + m.ry, k: 'mob', o: m });
+  for (const p of players.values()) ents.push({ z: p.rx + p.ry, k: 'pl', o: p });
+  ents.sort((a, b) => a.z - b.z);
+  for (const e of ents) {
+    const o = e.o;
+    if (e.k === 'res') drawRes(o); else if (e.k === 'bag') drawBag(o, t); else if (e.k === 'mob') drawMob(o, t); else drawPlayer(o, t);
+  }
+  // efectos
+  const now = performance.now();
+  fx = fx.filter((f) => now - f.born < 900);
+  for (const f of fx) {
+    const age = (now - f.born) / 900, p = iso(f.x, f.y);
+    if (f.t === 'dmg' || f.t === 'heal') {
+      ctx.font = 'bold 16px system-ui'; ctx.textAlign = 'center'; ctx.fillStyle = f.t === 'heal' ? `rgba(120,255,140,${1 - age})` : `rgba(255,235,90,${1 - age})`;
+      ctx.strokeStyle = `rgba(0,0,0,${1 - age})`; ctx.lineWidth = 3;
+      const txt = (f.t === 'heal' ? '+' : '-') + f.v; ctx.strokeText(txt, p.x, p.y - 40 - age * 30); ctx.fillText(txt, p.x, p.y - 40 - age * 30);
+    } else if (f.t === 'slash') {
+      ctx.strokeStyle = `rgba(160,220,255,${1 - age})`; ctx.lineWidth = 4; ctx.beginPath(); ctx.ellipse(p.x, p.y, 2.8 * TW / 2 * (0.4 + age), 2.8 * TH / 2 * (0.4 + age), 0, 0, 7); ctx.stroke();
+    } else if (f.t === 'chop') {
+      ctx.fillStyle = `rgba(255,255,255,${1 - age})`; for (let i = 0; i < 4; i++) ctx.fillRect(p.x - 12 + i * 8, p.y - 30 - age * 12 * (i % 2 + 1), 3, 3);
+    } else if (f.t === 'death') {
+      ctx.fillStyle = `rgba(255,60,60,${1 - age})`; ctx.font = '22px system-ui'; ctx.textAlign = 'center'; ctx.fillText('☠', p.x, p.y - 20 - age * 30);
+    }
+  }
+  ctx.restore();
+
+  // minimapa
+  const mw = 90, mx = VW - mw - 8, my = VH - mw - 190; // sobre los botones
+  if (VH > 420) {
+    ctx.fillStyle = '#0009'; ctx.fillRect(mx, my, mw, mw);
+    ctx.fillStyle = '#2c5a30'; ctx.fillRect(mx, my, mw * SAFE_X / W, mw);
+    ctx.fillStyle = '#5a2c28'; ctx.fillRect(mx + mw * SAFE_X / W, my, mw * (1 - SAFE_X / W), mw);
+    for (const p of players.values()) { ctx.fillStyle = p.id === myId ? '#fff' : '#6cf'; ctx.fillRect(mx + p.x / W * mw - 1, my + p.y / H * mw - 1, 3, 3); }
+  }
+  // cooldowns en botones
+  const n = performance.now();
+  document.getElementById('bSk').style.opacity = n < cd.sk ? .45 : 1;
+  document.getElementById('bDash').style.opacity = n < cd.dash ? .45 : 1;
+  const zEl = document.getElementById('zone'), red = mp.x >= SAFE_X;
+  zEl.textContent = red ? '⚠ ZONA DE LA MUERTE — PvP y full loot' : 'Ciudad segura'; zEl.classList.toggle('red', red);
+}
+
+function drawRes(r) {
+  const p = iso(r.x, r.y);
+  ctx.fillStyle = '#0004'; ctx.beginPath(); ctx.ellipse(p.x, p.y, 14, 7, 0, 0, 7); ctx.fill();
+  if (r.t === 'tree') {
+    ctx.fillStyle = '#5b3a1e'; ctx.fillRect(p.x - 4, p.y - 22, 8, 22);
+    ctx.fillStyle = '#2e8b3e'; ctx.beginPath(); ctx.arc(p.x, p.y - 32, 17, 0, 7); ctx.fill();
+    ctx.fillStyle = '#3aa64c'; ctx.beginPath(); ctx.arc(p.x - 5, p.y - 36, 9, 0, 7); ctx.fill();
+  } else if (r.t === 'rock') {
+    ctx.fillStyle = '#8a8f98'; ctx.beginPath(); ctx.moveTo(p.x - 14, p.y); ctx.lineTo(p.x - 8, p.y - 16); ctx.lineTo(p.x + 6, p.y - 18); ctx.lineTo(p.x + 14, p.y); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#aab0ba'; ctx.beginPath(); ctx.moveTo(p.x - 8, p.y - 16); ctx.lineTo(p.x + 6, p.y - 18); ctx.lineTo(p.x, p.y - 8); ctx.closePath(); ctx.fill();
+  } else {
+    ctx.fillStyle = '#4a4e57'; ctx.beginPath(); ctx.moveTo(p.x - 14, p.y); ctx.lineTo(p.x - 8, p.y - 16); ctx.lineTo(p.x + 6, p.y - 18); ctx.lineTo(p.x + 14, p.y); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#f2c94c'; for (const [dx, dy] of [[-6, -8], [2, -12], [6, -5]]) ctx.fillRect(p.x + dx, p.y + dy, 4, 4);
+  }
+}
+function drawBag(b, t) {
+  const p = iso(b.x, b.y), bob = Math.sin(t / 250) * 2;
+  ctx.fillStyle = '#0004'; ctx.beginPath(); ctx.ellipse(p.x, p.y, 10, 5, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#a0713a'; ctx.beginPath(); ctx.arc(p.x, p.y - 8 + bob, 9, 0, 7); ctx.fill();
+  ctx.fillStyle = '#d4a85a'; ctx.fillRect(p.x - 3, p.y - 20 + bob, 6, 5);
+}
+function drawMob(m, t) {
+  const p = iso(m.rx, m.ry);
+  ctx.fillStyle = '#0004'; ctx.beginPath(); ctx.ellipse(p.x, p.y, 15, 7, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#7a7f88'; ctx.beginPath(); ctx.ellipse(p.x, p.y - 10, 14, 9, 0, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.arc(p.x + 10, p.y - 16, 7, 0, 7); ctx.fill();
+  ctx.fillStyle = '#ff4040'; ctx.fillRect(p.x + 11, p.y - 18, 3, 3);
+  bar(p.x, p.y - 32, 30, m.hp / m.mh, '#d64545');
+}
+function drawPlayer(o, t) {
+  const p = iso(o.rx, o.ry), mine = o.id === myId;
+  ctx.fillStyle = '#0005'; ctx.beginPath(); ctx.ellipse(p.x, p.y, 14, 7, 0, 0, 7); ctx.fill();
+  if (mine) { ctx.strokeStyle = '#fff8'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(p.x, p.y, 17, 9, 0, 0, 7); ctx.stroke(); }
+  ctx.fillStyle = hashColor(o.n); ctx.fillRect(p.x - 8, p.y - 28, 16, 24);
+  ctx.fillStyle = '#f1d3b0'; ctx.beginPath(); ctx.arc(p.x, p.y - 34, 8, 0, 7); ctx.fill();
+  if (o.sw) { ctx.strokeStyle = '#dfe6ee'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(p.x + 10, p.y - 16); ctx.lineTo(p.x + 20, p.y - 36); ctx.stroke(); }
+  ctx.font = '12px system-ui'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000';
+  const label = o.n + ' [' + o.l + ']'; ctx.strokeText(label, p.x, p.y - 56); ctx.fillStyle = mine ? '#ffe27a' : '#fff'; ctx.fillText(label, p.x, p.y - 56);
+  bar(p.x, p.y - 51, 34, o.hp / o.mh, '#4cc35a');
+}
+requestAnimationFrame(frame);
+
+// zoom con rueda
+addEventListener('wheel', (e) => { zoomK = Math.max(0.6, Math.min(1.8, zoomK * (e.deltaY < 0 ? 1.08 : 0.92))); }, { passive: true });
+</script>

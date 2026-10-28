@@ -1,0 +1,8 @@
+{
+  "name": "mmorpg-prototipo",
+  "version": "0.1.0",
+  "description": "Prototipo MMORPG isométrico estilo Albion Online",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "dependencies": { "ws": "^8.18.0" }
+}

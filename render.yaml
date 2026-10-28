@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: reinos-de-plata
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
