@@ -28,32 +28,14 @@ function getAcct(name){ if (!accounts[name]) accounts[name] = { name, inv: {}, s
   if (!a.starter) { a.starter = true; a.inv.nucleo = (a.inv.nucleo || 0) + 1; } return a; }
 ${rest1}
 ${world}
-// Conexión simulada: el cliente cree que habla con un WebSocket.
-function serverConnect(ws){
-  let p = null;
-  return (raw) => {
-    let msg; try { msg = JSON.parse(raw); } catch(e){ return; }
-    if (!p) {
-      if (msg.t !== 'join') return;
-      const name = String(msg.name || '').replace(/[^\\p{L}\\p{N}_\\- ]/gu, '').trim().slice(0, 12);
-      if (!name) return send(ws, { t: 'err', m: 'Nombre inválido' });
-      const acct = getAcct(name), s = spawnPoint();
-      p = { ws, id: newId(), acct, x: s.x, y: s.y, hp: mhpOf(acct), mp: mmpOf(acct), dx: 0, dy: 0, fx: 1, fy: 0,
-        lastIn: Date.now(), cd: { atk: 0, sk: 0, dash: 0, gather: 0, pot: 0 }, dirty: true };
-      players.set(ws, p);
-      send(ws, { t: 'init', id: p.id, W, H, SAFE_X, recipes: RECIPES, items: ITEMS, pp: POWER_INIT, res: resources.map((r) => ({ id: r.id, t: r.t, x: r.x, y: r.y })) });
-      send(ws, { t: 'market', list: listings });
-      return;
-    }
-    handle(ws, p, msg);
-  };
-}
+function newSalt(){ return String(Math.random()).slice(2, 12); }
+function hashPass(p, salt){ let h = 5381; const t = salt + p; for (let i = 0; i < t.length; i++) h = ((h * 33) ^ t.charCodeAt(i)) >>> 0; return h.toString(36); }
 ${loop}
 window.WebSocket = function(){
   const c = { readyState: 0, onopen: null, onclose: null, onmessage: null };
   const s = { readyState: 1, send(d){ setTimeout(() => c.onmessage && c.onmessage({ data: d }), 0); },
     close(){ c.readyState = 3; c.onclose && c.onclose(); } };
-  const handler = serverConnect(s);
+  const handler = makeSession(s);
   c.send = (raw) => handler(raw);
   c.close = () => { players.delete(s); };
   setTimeout(() => { c.readyState = 1; c.onopen && c.onopen(); }, 0);

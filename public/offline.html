@@ -5,6 +5,20 @@
   canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
   #login{position:fixed;inset:0;display:flex;flex-direction:column;gap:12px;align-items:center;justify-content:center;background:#10141aee;z-index:20}
   #login h1{margin:0;font-size:28px;letter-spacing:1px}
+  #login input[type=password]{font-size:18px;padding:12px 14px;border-radius:10px;border:1px solid #3a4658;background:#1a212b;color:#fff;width:240px;text-align:center;user-select:text;-webkit-user-select:text}
+  #creator{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;gap:10px;background:#10141af2;z-index:21;overflow:auto;padding:max(16px,env(safe-area-inset-top)) 16px 24px;touch-action:pan-y}
+  #creator>*{flex-shrink:0}
+  #prevc{position:static;inset:auto;width:170px;height:200px;border-radius:14px;background:linear-gradient(#1d2733,#2b3a2e);border:1px solid #3a4658}
+  #powGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:min(340px,100%)}
+  #powGrid button{text-align:left;padding:8px 10px;border-width:2px;font-size:13px}
+  #powGrid button small{display:block;opacity:.75;font-size:11px}
+  #powGrid button.on{background:#3b5278}
+  .chk{display:flex;gap:8px;align-items:flex-start;font-size:13px;max-width:340px;text-align:left;touch-action:manipulation}
+  .chk input{margin-top:2px;width:18px;height:18px}
+  .sw{display:flex;gap:10px;align-items:center;font-size:13px}
+  .sw button{width:34px;height:34px;border-radius:50%;padding:0;border:3px solid #ffffff33;margin-right:6px}
+  .sw button.on{border-color:#fff}
+  #bEnter{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(200px + env(safe-area-inset-bottom));z-index:8;background:#4a6fa8;font-size:15px;padding:10px 18px;border-radius:20px}
   #login input{font-size:18px;padding:12px 14px;border-radius:10px;border:1px solid #3a4658;background:#1a212b;color:#fff;width:240px;text-align:center;user-select:text;-webkit-user-select:text}
   button{font:inherit;color:#fff;background:#2b3a52;border:1px solid #4a5d7c;border-radius:10px;padding:10px 14px}
   button:active{background:#3b5278}
@@ -59,9 +73,22 @@
 <div id="login">
   <h1>⚔️ Reinos de Plata</h1>
   <div style="opacity:.8;font-size:14px;text-align:center;max-width:280px">Recolecta, fabrica, comercia y sobrevive en la zona de la muerte. (Modo sin conexión: juegas tú solo y se guarda en este dispositivo.)</div>
-  <input id="name" maxlength="12" placeholder="Tu nombre" autocomplete="off">
-  <button id="join">Entrar</button>
-  <div id="loginErr" style="color:#ff8a8a;font-size:13px"></div>
+  <input id="uname" maxlength="12" placeholder="Nombre de usuario" autocomplete="username">
+  <input id="upass" type="password" maxlength="40" placeholder="Contraseña" autocomplete="current-password">
+  <button id="bLogin" style="width:240px">Entrar</button>
+  <button id="bReg" style="width:240px;background:#1f2a3a">Crear cuenta</button>
+  <div id="loginErr" style="color:#ff8a8a;font-size:13px;text-align:center;max-width:260px"></div>
+</div>
+<div id="creator">
+  <h2 style="margin:0">Crea tu personaje</h2>
+  <canvas id="prevc" width="170" height="200"></canvas>
+  <div style="font-size:13px;opacity:.8">Elige tu poder inicial (será tu primer poder, gratis)</div>
+  <div id="powGrid"></div>
+  <label class="chk"><input type="checkbox" id="auraChk" checked> El poder cambia mi aspecto (aura, cabello y ojos del color del elemento)</label>
+  <div class="sw"><span>Piel</span><span id="toneSw"></span></div>
+  <div class="sw"><span>Ropa</span><span id="clothSw"></span></div>
+  <button id="mkChar" style="width:240px;background:#3b6b3b">Crear personaje</button>
+  <div id="cErr" style="color:#ff8a8a;font-size:13px;text-align:center"></div>
 </div>
 
 <div id="hud">
@@ -73,6 +100,7 @@
   <div id="info"></div>
   <div id="zone">Ciudad segura</div>
 </div>
+<button id="bEnter" style="display:none"></button>
 <div id="topbtns"><button id="bBag">🎒 Menú</button><button id="bChat">💬</button></div>
 <div id="chatlog"></div>
 
@@ -203,6 +231,15 @@ const W = 100, H = 100;      // tamaño del mundo en tiles
 const SAFE_X = 30;           // x < SAFE_X = ciudad segura; x >= SAFE_X = zona de la muerte (PvP + full loot)
 const TICK = 50;             // 20 Hz
 const SPEED = 4.5;           // tiles/seg
+// La ciudad (lobby): zona segura donde apareces. Los edificios abren su menú al acercarte.
+const CITY = { x0: 5, x1: 27, y0: 34, y1: 66, buildings: [
+  { id: 'herreria', name: 'Herrería', x: 10, y: 40, w: 4, d: 3, h: 46, roof: '#b5651d', tab: 'craft' },
+  { id: 'mercado',  name: 'Mercado',  x: 10, y: 56, w: 4, d: 3, h: 40, roof: '#2f8f8f', tab: 'market' },
+  { id: 'torre',    name: 'Torre de poderes', x: 18, y: 45, w: 3, d: 3, h: 84, roof: '#7a4bd1', tab: 'powers' },
+  { id: 'salon',    name: 'Salón de habilidades', x: 18, y: 56, w: 3, d: 3, h: 52, roof: '#3f7fe0', tab: 'tree' },
+  { id: 'puerta',   name: 'Puerta de la zona de la muerte', x: 27.6, y: 46, w: 1.4, d: 8, h: 70, roof: '#7a1f1f', tab: null },
+] };
+const inCity = (x, y) => x >= CITY.x0 && x <= CITY.x1 && y >= CITY.y0 && y <= CITY.y1;
 
 const store = { get(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }, set(k,v){ try { localStorage.setItem(k,v); } catch(e){} } };
 let accounts = {}, listings = [];
@@ -233,9 +270,10 @@ const newId = () => nextId++;
 const resources = [];
 function spawnRes(type, n, minX, maxX) {
   for (let i = 0; i < n; i++) {
+    const x = minX + rnd() * (maxX - minX), y = 2 + rnd() * (H - 4);
+    if (inCity(x, y)) continue;                       // la ciudad no tiene árboles ni rocas
     resources.push({
-      id: newId(), t: type,
-      x: minX + rnd() * (maxX - minX), y: 2 + rnd() * (H - 4),
+      id: newId(), t: type, x, y,
       hp: type === 'ore' ? 4 : 3, alive: true, respawn: 0,
     });
   }
@@ -534,27 +572,62 @@ function handle(ws, p, msg) {
   }
 }
 
-
-// Conexión simulada: el cliente cree que habla con un WebSocket.
-function serverConnect(ws){
-  let p = null;
+// ---------- sesión: inicio de sesión, creación de personaje y entrada al mundo ----------
+const cleanName = (n) => String(n || '').replace(/[^\p{L}\p{N}_\- ]/gu, '').trim().slice(0, 12);
+const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+function makeSession(ws) {
+  let p = null, acct = null, fails = 0;
+  const err = (m) => send(ws, { t: 'err', m });
+  const auth = () => send(ws, { t: 'auth', name: acct.name, hasChar: !!acct.char, look: acct.char || null, pp: POWER_INIT });
   return (raw) => {
-    let msg; try { msg = JSON.parse(raw); } catch(e){ return; }
-    if (!p) {
-      if (msg.t !== 'join') return;
-      const name = String(msg.name || '').replace(/[^\p{L}\p{N}_\- ]/gu, '').trim().slice(0, 12);
-      if (!name) return send(ws, { t: 'err', m: 'Nombre inválido' });
-      const acct = getAcct(name), s = spawnPoint();
+    let msg; try { msg = JSON.parse(raw); } catch (e) { return; }
+    if (p) return handle(ws, p, msg);
+    if (msg.t === 'login' || msg.t === 'register') {
+      const name = cleanName(msg.name), pass = String(msg.pass || '');
+      if (name.length < 3) return err('El nombre debe tener entre 3 y 12 letras o números');
+      if (name === '__proto__' || name === 'constructor' || name === 'prototype') return err('Nombre no permitido');
+      if (pass.length < 4 || pass.length > 40) return err('La contraseña debe tener al menos 4 caracteres');
+      const ex = hasOwn(accounts, name) ? accounts[name] : null;
+      if (msg.t === 'register') {
+        if (ex) return err('Ese nombre ya existe. Usa Entrar.');
+        acct = getAcct(name); acct.salt = newSalt(); acct.hash = hashPass(pass, acct.salt); save();
+      } else {
+        if (!ex) return err('Esa cuenta no existe. Usa Crear cuenta.');
+        if (!ex.hash) { ex.salt = newSalt(); ex.hash = hashPass(pass, ex.salt); save(); }   // cuenta antigua sin contraseña: la primera que pongas queda guardada
+        else if (hashPass(pass, ex.salt) !== ex.hash) { if (++fails >= 8) ws.close(); return err('Contraseña incorrecta'); }
+        acct = getAcct(name);
+      }
+      return auth();
+    }
+    if (!acct) return;
+    if (msg.t === 'create') {
+      if (acct.char) return;
+      const power = String(msg.power || '');
+      if (!hasOwn(Pw.PARTS.src, power)) return err('Elige un poder');
+      acct.char = { power, aura: msg.aura ? 1 : 0, tone: Math.max(0, Math.min(3, Math.floor(+msg.tone) || 0)), cloth: Math.max(0, Math.min(4, Math.floor(+msg.cloth) || 0)) };
+      if (!(acct.powers && acct.powers.length)) {          // el poder elegido es tu primer poder, gratis y equipado
+        const c = Pw.cleanPower({ src: power, shape: 'proyectil', eff: 'dano', mods: {} });
+        c.name = Pw.defaultPowerName(c); acct.powers = [c]; acct.bar = [0, null, null];
+      }
+      save(); return auth();
+    }
+    if (msg.t === 'join') {
+      if (!acct.char) return;
+      for (const [ows, op] of players) if (op.acct === acct) { send(ows, { t: 'err', m: 'Sesión iniciada en otro lugar' }); players.delete(ows); ows.close(); }
+      const s = spawnPoint();
       p = { ws, id: newId(), acct, x: s.x, y: s.y, hp: mhpOf(acct), mp: mmpOf(acct), dx: 0, dy: 0, fx: 1, fy: 0,
         lastIn: Date.now(), cd: { atk: 0, sk: 0, dash: 0, gather: 0, pot: 0 }, dirty: true };
       players.set(ws, p);
-      send(ws, { t: 'init', id: p.id, W, H, SAFE_X, recipes: RECIPES, items: ITEMS, pp: POWER_INIT, res: resources.map((r) => ({ id: r.id, t: r.t, x: r.x, y: r.y })) });
+      send(ws, { t: 'init', id: p.id, W, H, SAFE_X, recipes: RECIPES, items: ITEMS, pp: POWER_INIT, city: CITY,
+        res: resources.map((r) => ({ id: r.id, t: r.t, x: r.x, y: r.y })) });
       send(ws, { t: 'market', list: listings });
-      return;
     }
-    handle(ws, p, msg);
   };
 }
+
+
+function newSalt(){ return String(Math.random()).slice(2, 12); }
+function hashPass(p, salt){ let h = 5381; const t = salt + p; for (let i = 0; i < t.length; i++) h = ((h * 33) ^ t.charCodeAt(i)) >>> 0; return h.toString(36); }
 // ---------- bucle principal ----------
 let tickN = 0, last = Date.now();
 setInterval(() => {
@@ -590,7 +663,7 @@ setInterval(() => {
   if (tickN % 2 === 0 && players.size) { // 10 Hz
     const snap = {
       t: 's',
-      p: [...players.values()].map((p) => ({ id: p.id, n: p.acct.name, x: +p.x.toFixed(2), y: +p.y.toFixed(2), hp: Math.round(p.hp), mh: mhpOf(p.acct), l: p.acct.lvl, sw: p.acct.inv.espada > 0 ? 1 : 0, fl: flagsOf(p, now) })),
+      p: [...players.values()].map((p) => ({ id: p.id, n: p.acct.name, x: +p.x.toFixed(2), y: +p.y.toFixed(2), hp: Math.round(p.hp), mh: mhpOf(p.acct), l: p.acct.lvl, sw: p.acct.inv.espada > 0 ? 1 : 0, fl: flagsOf(p, now), lk: p.acct.char ? [p.acct.char.power, p.acct.char.aura, p.acct.char.tone, p.acct.char.cloth] : null })),
       m: mobs.filter((m) => m.alive).map((m) => ({ id: m.id, x: +m.x.toFixed(2), y: +m.y.toFixed(2), hp: m.hp, mh: m.mhp, fl: flagsOf(m, now) })),
       d: resources.filter((r) => !r.alive).map((r) => r.id),
       b: bags.map((b) => ({ id: b.id, x: b.x, y: b.y })),
@@ -616,7 +689,7 @@ window.WebSocket = function(){
   const c = { readyState: 0, onopen: null, onclose: null, onmessage: null };
   const s = { readyState: 1, send(d){ setTimeout(() => c.onmessage && c.onmessage({ data: d }), 0); },
     close(){ c.readyState = 3; c.onclose && c.onclose(); } };
-  const handler = serverConnect(s);
+  const handler = makeSession(s);
   c.send = (raw) => handler(raw);
   c.close = () => { players.delete(s); };
   setTimeout(() => { c.readyState = 1; c.onopen && c.onopen(); }, 0);
@@ -641,6 +714,7 @@ const players = new Map(), mobs = new Map();
 let bags = [], fx = [], me = { inv: {}, silver: 0, xp: 0, lvl: 1, hp: 100, mh: 100, mp: 50, mm: 50, nx: 40 };
 let market = [], zoomK = 1;
 let cd = { sk: 0, dash: 0, atk: 0 };
+let city = null, enterTab = null;
 let pp = null, cdP = [0, 0, 0], prev = null, prevT = null, lastPSig = '';
 let draft = { name: '', src: 'fuego', shape: 'proyectil', eff: 'dano', mods: { alcance: 0, potencia: 0, rapidez: 0, eficiencia: 0 } };
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -650,12 +724,14 @@ const iso = (x, y) => ({ x: (x - y) * TW / 2, y: (x + y) * TH / 2 });
 function toast(m, t = 2200) { const e = document.getElementById('toast'); e.textContent = m; e.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(() => e.style.display = 'none', t); }
 
 // ================== Conexión ==================
-function connect(name) {
+function show(id) { for (const k of ['login', 'creator']) document.getElementById(k).style.display = k === id ? 'flex' : 'none'; }
+function connect(then) {
+  if (ws && ws.readyState === 1) return then();
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const url = window.SERVER_URL || (proto + '//' + location.host);
   ws = new WebSocket(url);
-  ws.onopen = () => ws.send(JSON.stringify({ t: 'join', name }));
-  ws.onclose = () => { document.getElementById('login').style.display = 'flex'; document.getElementById('loginErr').textContent = 'Desconectado del servidor'; };
+  ws.onopen = () => then();
+  ws.onclose = () => { show('login'); document.getElementById('loginErr').textContent = 'Desconectado del servidor'; };
   ws.onmessage = (ev) => onMsg(JSON.parse(ev.data));
 }
 const send = (o) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); };
@@ -664,8 +740,12 @@ function onMsg(m) {
   switch (m.t) {
     case 'init':
       myId = m.id; W = m.W; H = m.H; SAFE_X = m.SAFE_X; recipes = m.recipes; items = m.items; resList = m.res; pp = m.pp;
-      document.getElementById('login').style.display = 'none'; break;
-    case 'err': document.getElementById('loginErr').textContent = m.m; document.getElementById('login').style.display = 'flex'; break;
+      city = m.city; document.getElementById('login').style.display = 'none'; document.getElementById('creator').style.display = 'none'; break;
+    case 'auth': pp = m.pp; window.myName = m.name; if (m.hasChar) send({ t: 'join' }); else showCreator(); break;
+    case 'err':
+      if (document.getElementById('creator').style.display === 'flex') document.getElementById('cErr').textContent = m.m;
+      else { document.getElementById('loginErr').textContent = m.m; show('login'); }
+      break;
     case 'me': me = m; hud(); powerBtns();
       if (panelOpen) { if (tab === 'powers') { if (powersSig() !== lastPSig) renderPanel(); } else renderPanel(); } break;
     case 'pprev': prev = m.r; updatePrev(); break;
@@ -766,6 +846,11 @@ bind('bP0', 'p0'); bind('bP1', 'p1'); bind('bP2', 'p2'); bind('bAtk', 'atk', tru
 function openChat() { const b = document.getElementById('chatbox'); b.style.display = 'block'; document.getElementById('chatin').focus(); }
 function closeChat() { document.getElementById('chatbox').style.display = 'none'; document.getElementById('chatin').blur(); }
 document.getElementById('bChat').onclick = openChat;
+document.getElementById('bEnter').onclick = () => {
+  if (!enterTab) return;
+  if (!panelOpen) togglePanel();
+  tab = enterTab; syncTabs(); if (tab === 'powers') { prev = null; reqPrev(); } renderPanel();
+};
 document.getElementById('bBag').onclick = () => togglePanel();
 
 // ================== Panel (inventario / crafteo / mercado) ==================
@@ -880,7 +965,7 @@ function bindPowers() {
 function powerBtns() {
   for (let i = 0; i < 3; i++) {
     const b = document.getElementById('bP' + i), idx = me.bar && me.bar[i], d = idx != null && me.pw ? me.pw[idx] : null;
-    b.textContent = d ? d.name : '＋'; b.style.borderColor = d ? srcCol(d.src) : '#4a5d7c';
+    b.innerHTML = d ? `<span style="font-size:20px">${pp.parts.src[d.src].ico}</span><br>${esc(d.name.slice(0, 8))}` : '＋'; b.style.borderColor = d ? srcCol(d.src) : '#4a5d7c';
   }
 }
 
@@ -933,13 +1018,49 @@ function hud() {
 }
 
 // ================== Login ==================
-document.getElementById('join').onclick = () => {
-  const n = document.getElementById('name').value.trim(); if (!n) return;
-  window.myName = n.replace(/[^\p{L}\p{N}_\- ]/gu, '').trim().slice(0, 12);
-  try{localStorage.setItem('rp_name', n);}catch(e){} connect(n);
-};
-try{document.getElementById('name').value = localStorage.getItem('rp_name') || '';}catch(e){}
-document.getElementById('name').addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('join').click(); });
+function doAuth(kind) {
+  const name = document.getElementById('uname').value.trim(), pass = document.getElementById('upass').value;
+  document.getElementById('loginErr').textContent = '';
+  try { localStorage.setItem('rp_name', name); } catch (e) {}
+  connect(() => send({ t: kind, name, pass }));
+}
+document.getElementById('bLogin').onclick = () => doAuth('login');
+document.getElementById('bReg').onclick = () => doAuth('register');
+try { document.getElementById('uname').value = localStorage.getItem('rp_name') || ''; } catch (e) {}
+document.getElementById('upass').addEventListener('keydown', (e) => { if (e.key === 'Enter') doAuth('login'); });
+
+// ================== Creación de personaje ==================
+const TONES = ['#f1d3b0', '#e0b48a', '#b98660', '#7a5236'], CLOTHS = ['#3f7fe0', '#d64545', '#3aa64c', '#8a5cd6', '#d9b13b'];
+const POW_DESC = { fuego: 'Más daño directo', hielo: 'Ralentiza a quien golpea', tierra: 'Golpe pesado que empuja', rayo: 'Recarga rápida', sangre: 'Cuesta vida, poca energía', gravedad: 'Empuja a los enemigos' };
+let cr = { power: 'fuego', aura: true, tone: 0, cloth: 0 };
+function showCreator() {
+  show('creator');
+  const grid = document.getElementById('powGrid'); grid.innerHTML = '';
+  for (const k of Object.keys(pp.parts.src)) {
+    const b = document.createElement('button'); b.dataset.p = k; b.style.borderColor = pp.parts.src[k].color;
+    b.innerHTML = pp.parts.src[k].ico + ' <b>' + pp.parts.src[k].name + '</b><small>' + POW_DESC[k] + '</small>';
+    b.onclick = () => { cr.power = k; syncCreator(); }; grid.appendChild(b);
+  }
+  const sw = (id, arr, key) => { const el = document.getElementById(id); el.innerHTML = ''; arr.forEach((c, i) => { const b = document.createElement('button'); b.style.background = c; b.onclick = () => { cr[key] = i; syncCreator(); }; el.appendChild(b); }); };
+  sw('toneSw', TONES, 'tone'); sw('clothSw', CLOTHS, 'cloth');
+  syncCreator(); requestAnimationFrame(creatorFrame);
+}
+function syncCreator() {
+  document.querySelectorAll('#powGrid button').forEach((b) => b.classList.toggle('on', b.dataset.p === cr.power));
+  document.querySelectorAll('#toneSw button').forEach((b, i) => b.classList.toggle('on', i === cr.tone));
+  document.querySelectorAll('#clothSw button').forEach((b, i) => b.classList.toggle('on', i === cr.cloth));
+}
+document.getElementById('auraChk').onchange = (e) => { cr.aura = e.target.checked; };
+document.getElementById('mkChar').onclick = () => { document.getElementById('cErr').textContent = ''; send({ t: 'create', power: cr.power, aura: cr.aura, tone: cr.tone, cloth: cr.cloth }); };
+function creatorFrame(t) {
+  if (document.getElementById('creator').style.display !== 'flex') return;
+  const c = document.getElementById('prevc').getContext('2d');
+  c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, 170, 200);
+  c.setTransform(2.6, 0, 0, 2.6, 0, 0);
+  c.fillStyle = '#0006'; c.beginPath(); c.ellipse(32, 66, 14, 6, 0, 0, 7); c.fill();
+  drawBody(c, 32, 64, { pw: cr.power, au: cr.aura ? 1 : 0, tn: cr.tone, cl: cr.cloth }, t, 1, 'x');
+  requestAnimationFrame(creatorFrame);
+}
 
 // ================== Render ==================
 function hashColor(s) { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) | 0; return `hsl(${Math.abs(h) % 360},65%,55%)`; }
@@ -949,6 +1070,41 @@ function diamond(sx, sy, fill) {
 }
 function bar(sx, sy, w, p, col) { ctx.fillStyle = '#000a'; ctx.fillRect(sx - w / 2, sy, w, 5); ctx.fillStyle = col; ctx.fillRect(sx - w / 2, sy, w * Math.max(0, Math.min(1, p)), 5); }
 
+function drawBody(c, x, y, look, t, sw, fallbackName) {
+  const col = look && look.au ? srcCol(look.pw) : null;
+  const cloth = look ? CLOTHS[look.cl % CLOTHS.length] : hashColor(fallbackName);
+  const tone = look ? TONES[look.tn % TONES.length] : '#f1d3b0';
+  if (col) {                                   // el poder cambia el aspecto: aura con chispas, cabello y ojos del elemento
+    const g = c.createRadialGradient(x, y - 18, 4, x, y - 18, 34);
+    g.addColorStop(0, col + '66'); g.addColorStop(1, col + '00');
+    c.fillStyle = g; c.beginPath(); c.arc(x, y - 18, 34, 0, 7); c.fill();
+    c.fillStyle = col;
+    for (let i = 0; i < 4; i++) { const a = t / 600 + i * 1.57; c.fillRect(x + Math.cos(a) * 18 - 1, y - 20 + Math.sin(a) * 10 - 1 - ((t / 40 + i * 9) % 12), 3, 3); }
+  }
+  c.fillStyle = cloth; c.fillRect(x - 8, y - 28, 16, 24);
+  c.fillStyle = tone; c.beginPath(); c.arc(x, y - 34, 8, 0, 7); c.fill();
+  c.fillStyle = col || '#4a3321'; c.beginPath(); c.arc(x, y - 36, 8.5, Math.PI, 0); c.fill(); c.fillRect(x - 8.5, y - 37, 17, 3);
+  c.fillStyle = col ? '#fff' : '#222'; c.fillRect(x - 4, y - 34, 2, 2); c.fillRect(x + 2, y - 34, 2, 2);
+  if (sw) { c.strokeStyle = '#dfe6ee'; c.lineWidth = 3; c.beginPath(); c.moveTo(x + 10, y - 16); c.lineTo(x + 20, y - 36); c.stroke(); }
+}
+function drawBld(b) {
+  const P = [iso(b.x, b.y), iso(b.x + b.w, b.y), iso(b.x + b.w, b.y + b.d), iso(b.x, b.y + b.d)];
+  const T = P.map((q) => ({ x: q.x, y: q.y - b.h }));
+  const poly = (pts, f) => { ctx.beginPath(); pts.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y))); ctx.closePath(); ctx.fillStyle = f; ctx.fill(); };
+  poly(P, '#0004');
+  poly([P[3], P[2], T[2], T[3]], '#6c6358'); poly([P[2], P[1], T[1], T[2]], '#554d44');
+  if (b.id !== 'puerta') {
+    poly(T, b.roof);
+    const c = { x: (T[0].x + T[2].x) / 2, y: (T[0].y + T[2].y) / 2 };
+    ctx.fillStyle = '#1b1410'; ctx.fillRect((P[2].x + P[3].x) / 2 - 5, P[2].y - 20, 10, 18);
+    ctx.fillStyle = b.roof; ctx.beginPath(); ctx.moveTo(c.x, c.y - 22); ctx.lineTo(c.x + 7, c.y - 12); ctx.lineTo(c.x - 7, c.y - 12); ctx.fill();
+  } else {
+    ctx.fillStyle = '#ff5533'; ctx.globalAlpha = 0.5 + 0.2 * Math.sin(performance.now() / 300); poly([P[3], P[2], T[2], T[3]], '#3a0d0d'); ctx.globalAlpha = 1;
+  }
+  const lab = { x: (T[0].x + T[2].x) / 2, y: Math.min(T[0].y, T[1].y) - 4 };
+  ctx.font = 'bold 12px system-ui'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.fillStyle = '#fff';
+  ctx.strokeText(b.name, lab.x, lab.y); ctx.fillText(b.name, lab.x, lab.y);
+}
 let lastT = performance.now();
 function frame(t) {
   const dt = Math.min(0.1, (t - lastT) / 1000); lastT = t;
@@ -979,12 +1135,14 @@ function draw(t) {
     const chk = (tx + ty) & 1;
     let col;
     if (tx < SAFE_X) col = chk ? '#3f7d45' : '#437f4a'; else col = chk ? '#6b3b36' : '#703f3a';
+    if (city && tx >= city.x0 && tx <= city.x1 && ty >= city.y0 && ty <= city.y1) col = chk ? '#8d8878' : '#958f7e';   // plaza de la ciudad
     if (tx === SAFE_X) col = '#c9a227';
     diamond(sx, sy, col);
   }
 
   // entidades ordenadas por profundidad
   const ents = [];
+  for (const b of (city ? city.buildings : [])) ents.push({ z: b.x + b.y + (b.w + b.d) / 2, k: 'bld', o: b });
   for (const r of resList) if (!deadRes.has(r.id)) ents.push({ z: r.x + r.y, k: 'res', o: r });
   for (const b of bags) ents.push({ z: b.x + b.y, k: 'bag', o: b });
   for (const m of mobs.values()) ents.push({ z: m.rx + m.ry, k: 'mob', o: m });
@@ -992,7 +1150,7 @@ function draw(t) {
   ents.sort((a, b) => a.z - b.z);
   for (const e of ents) {
     const o = e.o;
-    if (e.k === 'res') drawRes(o); else if (e.k === 'bag') drawBag(o, t); else if (e.k === 'mob') drawMob(o, t); else drawPlayer(o, t);
+    if (e.k === 'bld') drawBld(o); else if (e.k === 'res') drawRes(o); else if (e.k === 'bag') drawBag(o, t); else if (e.k === 'mob') drawMob(o, t); else drawPlayer(o, t);
   }
   // efectos
   const now = performance.now();
@@ -1044,6 +1202,9 @@ function draw(t) {
   document.getElementById('bSk').style.opacity = n < cd.sk ? .45 : 1;
   document.getElementById('bDash').style.opacity = n < cd.dash ? .45 : 1;
   for (let i = 0; i < 3; i++) document.getElementById('bP' + i).style.opacity = n < cdP[i] ? .45 : 1;
+  const nb = city && city.buildings.find((b) => b.tab && mp.rx >= b.x - 2.5 && mp.rx <= b.x + b.w + 2.5 && mp.ry >= b.y - 2.5 && mp.ry <= b.y + b.d + 2.5);
+  const eb = document.getElementById('bEnter');
+  if (nb) { enterTab = nb.tab; eb.textContent = 'Entrar: ' + nb.name; eb.style.display = 'block'; } else { enterTab = null; eb.style.display = 'none'; }
   const zEl = document.getElementById('zone'), red = mp.x >= SAFE_X;
   zEl.textContent = red ? '⚠ ZONA DE LA MUERTE — PvP y full loot' : 'Ciudad segura'; zEl.classList.toggle('red', red);
 }
@@ -1082,9 +1243,7 @@ function drawPlayer(o, t) {
   const p = iso(o.rx, o.ry), mine = o.id === myId;
   ctx.fillStyle = '#0005'; ctx.beginPath(); ctx.ellipse(p.x, p.y, 14, 7, 0, 0, 7); ctx.fill();
   if (mine) { ctx.strokeStyle = '#fff8'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(p.x, p.y, 17, 9, 0, 0, 7); ctx.stroke(); }
-  ctx.fillStyle = hashColor(o.n); ctx.fillRect(p.x - 8, p.y - 28, 16, 24);
-  ctx.fillStyle = '#f1d3b0'; ctx.beginPath(); ctx.arc(p.x, p.y - 34, 8, 0, 7); ctx.fill();
-  if (o.sw) { ctx.strokeStyle = '#dfe6ee'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(p.x + 10, p.y - 16); ctx.lineTo(p.x + 20, p.y - 36); ctx.stroke(); }
+  drawBody(ctx, p.x, p.y, o.lk ? { pw: o.lk[0], au: o.lk[1], tn: o.lk[2], cl: o.lk[3] } : null, t, o.sw, o.n);
   ctx.font = '12px system-ui'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000';
   const label = o.n + ' [' + o.l + ']'; ctx.strokeText(label, p.x, p.y - 56); ctx.fillStyle = mine ? '#ffe27a' : '#fff'; ctx.fillText(label, p.x, p.y - 56);
   bar(p.x, p.y - 51, 34, o.hp / o.mh, '#4cc35a'); flagIcons(p.x, p.y - 62, o.fl);

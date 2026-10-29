@@ -4,12 +4,24 @@ const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
 const Pw = require('./powers');
+const crypto = require('crypto');
+function newSalt() { return crypto.randomBytes(8).toString('hex'); }
+function hashPass(pass, salt) { return crypto.scryptSync(pass, salt, 32).toString('hex'); }
 
 const PORT = process.env.PORT || 3000;
 const W = 100, H = 100;      // tamaño del mundo en tiles
 const SAFE_X = 30;           // x < SAFE_X = ciudad segura; x >= SAFE_X = zona de la muerte (PvP + full loot)
 const TICK = 50;             // 20 Hz
 const SPEED = 4.5;           // tiles/seg
+// La ciudad (lobby): zona segura donde apareces. Los edificios abren su menú al acercarte.
+const CITY = { x0: 5, x1: 27, y0: 34, y1: 66, buildings: [
+  { id: 'herreria', name: 'Herrería', x: 10, y: 40, w: 4, d: 3, h: 46, roof: '#b5651d', tab: 'craft' },
+  { id: 'mercado',  name: 'Mercado',  x: 10, y: 56, w: 4, d: 3, h: 40, roof: '#2f8f8f', tab: 'market' },
+  { id: 'torre',    name: 'Torre de poderes', x: 18, y: 45, w: 3, d: 3, h: 84, roof: '#7a4bd1', tab: 'powers' },
+  { id: 'salon',    name: 'Salón de habilidades', x: 18, y: 56, w: 3, d: 3, h: 52, roof: '#3f7fe0', tab: 'tree' },
+  { id: 'puerta',   name: 'Puerta de la zona de la muerte', x: 27.6, y: 46, w: 1.4, d: 8, h: 70, roof: '#7a1f1f', tab: null },
+] };
+const inCity = (x, y) => x >= CITY.x0 && x <= CITY.x1 && y >= CITY.y0 && y <= CITY.y1;
 const DATA_FILE = path.join(__dirname, 'data.json');
 
 const RECIPES = {
@@ -54,9 +66,10 @@ function getAcct(name) {
 const resources = [];
 function spawnRes(type, n, minX, maxX) {
   for (let i = 0; i < n; i++) {
+    const x = minX + rnd() * (maxX - minX), y = 2 + rnd() * (H - 4);
+    if (inCity(x, y)) continue;                       // la ciudad no tiene árboles ni rocas
     resources.push({
-      id: newId(), t: type,
-      x: minX + rnd() * (maxX - minX), y: 2 + rnd() * (H - 4),
+      id: newId(), t: type, x, y,
       hp: type === 'ore' ? 4 : 3, alive: true, respawn: 0,
     });
   }
@@ -355,6 +368,59 @@ function handle(ws, p, msg) {
   }
 }
 
+// ---------- sesión: inicio de sesión, creación de personaje y entrada al mundo ----------
+const cleanName = (n) => String(n || '').replace(/[^\p{L}\p{N}_\- ]/gu, '').trim().slice(0, 12);
+const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+function makeSession(ws) {
+  let p = null, acct = null, fails = 0;
+  const err = (m) => send(ws, { t: 'err', m });
+  const auth = () => send(ws, { t: 'auth', name: acct.name, hasChar: !!acct.char, look: acct.char || null, pp: POWER_INIT });
+  return (raw) => {
+    let msg; try { msg = JSON.parse(raw); } catch (e) { return; }
+    if (p) return handle(ws, p, msg);
+    if (msg.t === 'login' || msg.t === 'register') {
+      const name = cleanName(msg.name), pass = String(msg.pass || '');
+      if (name.length < 3) return err('El nombre debe tener entre 3 y 12 letras o números');
+      if (name === '__proto__' || name === 'constructor' || name === 'prototype') return err('Nombre no permitido');
+      if (pass.length < 4 || pass.length > 40) return err('La contraseña debe tener al menos 4 caracteres');
+      const ex = hasOwn(accounts, name) ? accounts[name] : null;
+      if (msg.t === 'register') {
+        if (ex) return err('Ese nombre ya existe. Usa Entrar.');
+        acct = getAcct(name); acct.salt = newSalt(); acct.hash = hashPass(pass, acct.salt); save();
+      } else {
+        if (!ex) return err('Esa cuenta no existe. Usa Crear cuenta.');
+        if (!ex.hash) { ex.salt = newSalt(); ex.hash = hashPass(pass, ex.salt); save(); }   // cuenta antigua sin contraseña: la primera que pongas queda guardada
+        else if (hashPass(pass, ex.salt) !== ex.hash) { if (++fails >= 8) ws.close(); return err('Contraseña incorrecta'); }
+        acct = getAcct(name);
+      }
+      return auth();
+    }
+    if (!acct) return;
+    if (msg.t === 'create') {
+      if (acct.char) return;
+      const power = String(msg.power || '');
+      if (!hasOwn(Pw.PARTS.src, power)) return err('Elige un poder');
+      acct.char = { power, aura: msg.aura ? 1 : 0, tone: Math.max(0, Math.min(3, Math.floor(+msg.tone) || 0)), cloth: Math.max(0, Math.min(4, Math.floor(+msg.cloth) || 0)) };
+      if (!(acct.powers && acct.powers.length)) {          // el poder elegido es tu primer poder, gratis y equipado
+        const c = Pw.cleanPower({ src: power, shape: 'proyectil', eff: 'dano', mods: {} });
+        c.name = Pw.defaultPowerName(c); acct.powers = [c]; acct.bar = [0, null, null];
+      }
+      save(); return auth();
+    }
+    if (msg.t === 'join') {
+      if (!acct.char) return;
+      for (const [ows, op] of players) if (op.acct === acct) { send(ows, { t: 'err', m: 'Sesión iniciada en otro lugar' }); players.delete(ows); ows.close(); }
+      const s = spawnPoint();
+      p = { ws, id: newId(), acct, x: s.x, y: s.y, hp: mhpOf(acct), mp: mmpOf(acct), dx: 0, dy: 0, fx: 1, fy: 0,
+        lastIn: Date.now(), cd: { atk: 0, sk: 0, dash: 0, gather: 0, pot: 0 }, dirty: true };
+      players.set(ws, p);
+      send(ws, { t: 'init', id: p.id, W, H, SAFE_X, recipes: RECIPES, items: ITEMS, pp: POWER_INIT, city: CITY,
+        res: resources.map((r) => ({ id: r.id, t: r.t, x: r.x, y: r.y })) });
+      send(ws, { t: 'market', list: listings });
+    }
+  };
+}
+
 // ---------- red ----------
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml' };
 const server = http.createServer((req, res) => {
@@ -370,27 +436,8 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocketServer({ server, maxPayload: 2048 });
 
 wss.on('connection', (ws) => {
-  let p = null;
-  ws.on('message', (raw) => {
-    let msg; try { msg = JSON.parse(raw); } catch (e) { return; }
-    if (!p) {
-      if (msg.t !== 'join') return;
-      const name = String(msg.name || '').replace(/[^\p{L}\p{N}_\- ]/gu, '').trim().slice(0, 12);
-      if (!name) return send(ws, { t: 'err', m: 'Nombre inválido' });
-      for (const [ows, op] of players) if (op.acct.name === name) { send(ows, { t: 'err', m: 'Sesión iniciada en otro lugar' }); players.delete(ows); ows.close(); }
-      const acct = getAcct(name);
-      const s = spawnPoint();
-      p = { ws, id: newId(), acct, x: s.x, y: s.y, hp: mhpOf(acct), mp: mmpOf(acct), dx: 0, dy: 0, fx: 1, fy: 0,
-        lastIn: Date.now(), cd: { atk: 0, sk: 0, dash: 0, gather: 0, pot: 0 }, dirty: true };
-      players.set(ws, p);
-      send(ws, { t: 'init', id: p.id, W, H, SAFE_X, recipes: RECIPES, items: ITEMS, pp: POWER_INIT,
-        res: resources.map((r) => ({ id: r.id, t: r.t, x: r.x, y: r.y })) });
-      send(ws, { t: 'market', list: listings });
-      return;
-    }
-    handle(ws, p, msg);
-  });
-  ws.on('close', () => { if (p) players.delete(ws); });
+  ws.on('message', makeSession(ws));
+  ws.on('close', () => players.delete(ws));
 });
 
 // ---------- bucle principal ----------
@@ -428,7 +475,7 @@ setInterval(() => {
   if (tickN % 2 === 0 && players.size) { // 10 Hz
     const snap = {
       t: 's',
-      p: [...players.values()].map((p) => ({ id: p.id, n: p.acct.name, x: +p.x.toFixed(2), y: +p.y.toFixed(2), hp: Math.round(p.hp), mh: mhpOf(p.acct), l: p.acct.lvl, sw: p.acct.inv.espada > 0 ? 1 : 0, fl: flagsOf(p, now) })),
+      p: [...players.values()].map((p) => ({ id: p.id, n: p.acct.name, x: +p.x.toFixed(2), y: +p.y.toFixed(2), hp: Math.round(p.hp), mh: mhpOf(p.acct), l: p.acct.lvl, sw: p.acct.inv.espada > 0 ? 1 : 0, fl: flagsOf(p, now), lk: p.acct.char ? [p.acct.char.power, p.acct.char.aura, p.acct.char.tone, p.acct.char.cloth] : null })),
       m: mobs.filter((m) => m.alive).map((m) => ({ id: m.id, x: +m.x.toFixed(2), y: +m.y.toFixed(2), hp: m.hp, mh: m.mhp, fl: flagsOf(m, now) })),
       d: resources.filter((r) => !r.alive).map((r) => r.id),
       b: bags.map((b) => ({ id: b.id, x: b.x, y: b.y })),
