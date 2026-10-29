@@ -25,6 +25,8 @@
   #pbtns{position:fixed;left:calc(14px + env(safe-area-inset-left));bottom:calc(160px + env(safe-area-inset-bottom));display:flex;gap:8px;z-index:6}
   #pbtns button{width:56px;height:56px;border-radius:50%;padding:2px;font-size:11px;line-height:1.1;background:#2b3a52cc;border:3px solid #4a5d7c;touch-action:none;overflow:hidden;word-break:break-word}
   .pw-sel{width:100%}
+  .tnode{margin:6px 0 6px 4px;padding-left:10px}
+  .tkid{margin-left:14px;padding:3px 0;font-size:13px;color:#7c8798;border-left:1px dashed #ffffff30;padding-left:10px}
   .pw-row{padding:6px 0;border-bottom:1px solid #ffffff12}
   .pw-mod{display:flex;align-items:center;gap:6px;justify-content:space-between;padding:3px 0}
   .pw-mod button{padding:2px 10px;font-size:16px;line-height:1.2}
@@ -82,6 +84,7 @@
     <button data-tab="craft">Crafteo</button>
     <button data-tab="market">Mercado</button>
     <button data-tab="powers">Poderes</button>
+    <button data-tab="tree">Árbol</button>
     <button id="pclose" style="margin-left:auto">✕</button>
   </div>
   <div id="pbody"></div>
@@ -102,6 +105,7 @@ const PARTS = {
     fuego:    { name: 'Fuego',        cost: 2, dmg: 1.15, cd: 1.1,  mp: 1.0, color: '#ff7a2e', ico: '🔥' },
     hielo:    { name: 'Hielo',        cost: 2, dmg: 0.9,  cd: 1.0,  mp: 0.9, slow: 0.45, color: '#8fd8ff', ico: '❄️' },
     rayo:     { name: 'Electricidad', cost: 2, dmg: 0.95, cd: 0.85, mp: 1.1, color: '#f5e65a', ico: '⚡' },
+    tierra:   { name: 'Tierra',       cost: 2, dmg: 0.95, cd: 1.05, mp: 1.0, push: 1.0, color: '#b08a4e', ico: '⛰️' },
     sangre:   { name: 'Sangre',       cost: 3, dmg: 1.0,  cd: 1.0,  mp: 0.7, hpcost: 0.06, color: '#c0283c', ico: '🩸' },
     gravedad: { name: 'Gravedad',     cost: 3, dmg: 0.8,  cd: 1.0,  mp: 1.0, push: 1.5, color: '#9a7aff', ico: '🌑' },
   },
@@ -135,6 +139,22 @@ const PVP_MUL = 0.6;             // contra otros jugadores los poderes hacen 40%
 const MAX_POWERS = 6;
 const FORGE_COST = { nucleo: 1, silver: 10 };
 
+const FORJA_REFUND = 0.3;        // habilidad de ayuda Forja: 30% de recuperar los materiales al fabricar
+
+// Árbol de habilidades. `on: true` = ya funciona; `on: false` = rama de relleno, todavía sin función.
+const TREE = [
+  { id: 'elem', name: 'Elementos', nodes: [
+    { id: 'fuego', name: 'Fuego', src: 'fuego', on: true, desc: 'Más daño directo.', kids: ['Llamarada', 'Infierno'] },
+    { id: 'hielo', name: 'Hielo', src: 'hielo', on: true, desc: 'Ralentiza a quien golpea.', kids: ['Escarcha', 'Ventisca'] },
+    { id: 'tierra', name: 'Tierra', src: 'tierra', on: true, desc: 'Golpe pesado que empuja.', kids: ['Muro', 'Terremoto'] },
+    { id: 'rayo', name: 'Rayo', src: 'rayo', on: true, desc: 'Recarga rápida.', kids: ['Cadena', 'Tormenta'] },
+  ] },
+  { id: 'apoyo', name: 'Apoyo', nodes: [
+    { id: 'forja', name: 'Forja', on: true, desc: 'Al fabricar tienes 30% de recuperar los materiales.', kids: ['Maestría', 'Aleaciones'] },
+    { id: 'teleport', name: 'Teletransportación', on: false, desc: 'Próximamente.', kids: ['Salto corto', 'Salto largo'] },
+  ] },
+];
+
 const powerBudget = (lvl) => Math.min(40, 10 + lvl);
 
 function cleanPower(d) {
@@ -167,7 +187,7 @@ function powerStats(c, lvl) {
   return { dmg: Math.round(dmg), cd, mp, range, heal: +heal.toFixed(2), hpcost: S.hpcost || 0 };
 }
 
-module.exports = { PARTS, MOD_MAX, MOD_COST, POWER_MIN_CD, POWER_GCD, POWER_DMG_CAP, POWER_HEAL_CAP, PVP_MUL, MAX_POWERS, FORGE_COST,
+module.exports = { TREE, FORJA_REFUND, PARTS, MOD_MAX, MOD_COST, POWER_MIN_CD, POWER_GCD, POWER_DMG_CAP, POWER_HEAL_CAP, PVP_MUL, MAX_POWERS, FORGE_COST,
   powerBudget, cleanPower, defaultPowerName, powerCost, powerStats };
 
 return module.exports; })();
@@ -293,7 +313,7 @@ function hit(p, target, dmg) {
 }
 
 // ---------- poderes personalizados (las reglas viven en powers.js) ----------
-const POWER_INIT = { parts: Pw.PARTS, modMax: Pw.MOD_MAX, modCost: Pw.MOD_COST, max: Pw.MAX_POWERS, forge: Pw.FORGE_COST, pvp: Pw.PVP_MUL };
+const POWER_INIT = { parts: Pw.PARTS, modMax: Pw.MOD_MAX, modCost: Pw.MOD_COST, max: Pw.MAX_POWERS, forge: Pw.FORGE_COST, pvp: Pw.PVP_MUL, tree: Pw.TREE, refund: Pw.FORJA_REFUND };
 const flagsOf = (e, now) => (now < (e.slowUntil || 0) ? 2 : 0);
 function powersView(a) { return (a.powers || []).map((c, i) => ({ ...c, i, cost: Pw.powerCost(c), st: Pw.powerStats(c, a.lvl) })); }
 
@@ -405,6 +425,7 @@ function handle(ws, p, msg) {
       for (const k in r) addItem(p.acct, k, -r[k]);
       addItem(p.acct, msg.item, 1); addXp(p, 3); p.dirty = true;
       send(ws, { t: 'msg', m: 'Fabricaste: ' + msg.item });
+      if (rnd() < Pw.FORJA_REFUND) { for (const k in r) addItem(p.acct, k, r[k]); send(ws, { t: 'msg', m: 'Forja: recuperaste los materiales' }); }
       break;
     }
     case 'potion': {
@@ -754,6 +775,8 @@ function renderPanel() {
     }
   } else if (tab === 'powers') {
     h += powersHTML();
+  } else if (tab === 'tree') {
+    h += treeHTML();
   } else {
     const inSafe = (players.get(myId) || { x: 0 }).x < SAFE_X;
     if (!inSafe) h += '<p style="color:#ff9a9a">El mercado solo está disponible en la ciudad segura (zona verde).</p>';
@@ -767,6 +790,7 @@ function renderPanel() {
   pbody.querySelectorAll('[data-buy]').forEach((b) => b.onclick = () => send({ t: 'buy', id: +b.dataset.buy }));
   pbody.querySelectorAll('[data-cancel]').forEach((b) => b.onclick = () => send({ t: 'cancel', id: +b.dataset.cancel }));
   if (tab === 'powers') bindPowers();
+  if (tab === 'tree') bindTree();
   const go = document.getElementById('sGo');
   if (go) go.onclick = () => send({ t: 'sell', item: document.getElementById('sItem').value, qty: +document.getElementById('sQty').value, price: +document.getElementById('sPrice').value });
 }
@@ -842,6 +866,23 @@ function powerBtns() {
     const b = document.getElementById('bP' + i), idx = me.bar && me.bar[i], d = idx != null && me.pw ? me.pw[idx] : null;
     b.textContent = d ? d.name : '＋'; b.style.borderColor = d ? srcCol(d.src) : '#4a5d7c';
   }
+}
+
+function treeHTML() {
+  if (!pp) return '';
+  let h = '<p><small>Las ramas con candado todavía no tienen función. Los elementos y la Forja ya funcionan.</small></p>';
+  for (const br of pp.tree) {
+    h += `<div class="pw-row"><b>${esc(br.name)}</b></div>`;
+    for (const n of br.nodes) {
+      const col = n.src ? srcCol(n.src) : (n.on ? '#9be59b' : '#7c8798');
+      h += `<div class="tnode" style="border-left:3px solid ${col};${n.on ? '' : 'opacity:.55'}"><div class="row" style="border:0"><span><b style="color:${col}">${esc(n.name)}</b> <small>${n.on ? 'activo' : '🔒 próximamente'}</small><br><small>${esc(n.desc)}</small></span>${n.src ? `<button data-tsrc="${n.src}" style="padding:4px 10px">Forjar</button>` : ''}</div>` +
+        n.kids.map((k) => `<div class="tkid">🔒 ${esc(k)}</div>`).join('') + '</div>';
+    }
+  }
+  return h;
+}
+function bindTree() {
+  pbody.querySelectorAll('[data-tsrc]').forEach((b) => b.onclick = () => { draft.src = b.dataset.tsrc; tab = 'powers'; syncTabs(); prev = null; reqPrev(); renderPanel(); });
 }
 
 function hud() {

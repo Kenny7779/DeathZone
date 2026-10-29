@@ -8,6 +8,7 @@ const PARTS = {
     fuego:    { name: 'Fuego',        cost: 2, dmg: 1.15, cd: 1.1,  mp: 1.0, color: '#ff7a2e', ico: '🔥' },
     hielo:    { name: 'Hielo',        cost: 2, dmg: 0.9,  cd: 1.0,  mp: 0.9, slow: 0.45, color: '#8fd8ff', ico: '❄️' },
     rayo:     { name: 'Electricidad', cost: 2, dmg: 0.95, cd: 0.85, mp: 1.1, color: '#f5e65a', ico: '⚡' },
+    tierra:   { name: 'Tierra',       cost: 2, dmg: 0.95, cd: 1.05, mp: 1.0, push: 1.0, color: '#b08a4e', ico: '⛰️' },
     sangre:   { name: 'Sangre',       cost: 3, dmg: 1.0,  cd: 1.0,  mp: 0.7, hpcost: 0.06, color: '#c0283c', ico: '🩸' },
     gravedad: { name: 'Gravedad',     cost: 3, dmg: 0.8,  cd: 1.0,  mp: 1.0, push: 1.5, color: '#9a7aff', ico: '🌑' },
   },
@@ -41,6 +42,22 @@ const PVP_MUL = 0.6;             // contra otros jugadores los poderes hacen 40%
 const MAX_POWERS = 6;
 const FORGE_COST = { nucleo: 1, silver: 10 };
 
+const FORJA_REFUND = 0.3;        // habilidad de ayuda Forja: 30% de recuperar los materiales al fabricar
+
+// Árbol de habilidades. `on: true` = ya funciona; `on: false` = rama de relleno, todavía sin función.
+const TREE = [
+  { id: 'elem', name: 'Elementos', nodes: [
+    { id: 'fuego', name: 'Fuego', src: 'fuego', on: true, desc: 'Más daño directo.', kids: ['Llamarada', 'Infierno'] },
+    { id: 'hielo', name: 'Hielo', src: 'hielo', on: true, desc: 'Ralentiza a quien golpea.', kids: ['Escarcha', 'Ventisca'] },
+    { id: 'tierra', name: 'Tierra', src: 'tierra', on: true, desc: 'Golpe pesado que empuja.', kids: ['Muro', 'Terremoto'] },
+    { id: 'rayo', name: 'Rayo', src: 'rayo', on: true, desc: 'Recarga rápida.', kids: ['Cadena', 'Tormenta'] },
+  ] },
+  { id: 'apoyo', name: 'Apoyo', nodes: [
+    { id: 'forja', name: 'Forja', on: true, desc: 'Al fabricar tienes 30% de recuperar los materiales.', kids: ['Maestría', 'Aleaciones'] },
+    { id: 'teleport', name: 'Teletransportación', on: false, desc: 'Próximamente.', kids: ['Salto corto', 'Salto largo'] },
+  ] },
+];
+
 const powerBudget = (lvl) => Math.min(40, 10 + lvl);
 
 function cleanPower(d) {
@@ -73,5 +90,5 @@ function powerStats(c, lvl) {
   return { dmg: Math.round(dmg), cd, mp, range, heal: +heal.toFixed(2), hpcost: S.hpcost || 0 };
 }
 
-module.exports = { PARTS, MOD_MAX, MOD_COST, POWER_MIN_CD, POWER_GCD, POWER_DMG_CAP, POWER_HEAL_CAP, PVP_MUL, MAX_POWERS, FORGE_COST,
+module.exports = { TREE, FORJA_REFUND, PARTS, MOD_MAX, MOD_COST, POWER_MIN_CD, POWER_GCD, POWER_DMG_CAP, POWER_HEAL_CAP, PVP_MUL, MAX_POWERS, FORGE_COST,
   powerBudget, cleanPower, defaultPowerName, powerCost, powerStats };

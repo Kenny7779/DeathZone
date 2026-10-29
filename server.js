@@ -142,7 +142,7 @@ function hit(p, target, dmg) {
 }
 
 // ---------- poderes personalizados (las reglas viven en powers.js) ----------
-const POWER_INIT = { parts: Pw.PARTS, modMax: Pw.MOD_MAX, modCost: Pw.MOD_COST, max: Pw.MAX_POWERS, forge: Pw.FORGE_COST, pvp: Pw.PVP_MUL };
+const POWER_INIT = { parts: Pw.PARTS, modMax: Pw.MOD_MAX, modCost: Pw.MOD_COST, max: Pw.MAX_POWERS, forge: Pw.FORGE_COST, pvp: Pw.PVP_MUL, tree: Pw.TREE, refund: Pw.FORJA_REFUND };
 const flagsOf = (e, now) => (now < (e.slowUntil || 0) ? 2 : 0);
 function powersView(a) { return (a.powers || []).map((c, i) => ({ ...c, i, cost: Pw.powerCost(c), st: Pw.powerStats(c, a.lvl) })); }
 
@@ -254,6 +254,7 @@ function handle(ws, p, msg) {
       for (const k in r) addItem(p.acct, k, -r[k]);
       addItem(p.acct, msg.item, 1); addXp(p, 3); p.dirty = true;
       send(ws, { t: 'msg', m: 'Fabricaste: ' + msg.item });
+      if (rnd() < Pw.FORJA_REFUND) { for (const k in r) addItem(p.acct, k, r[k]); send(ws, { t: 'msg', m: 'Forja: recuperaste los materiales' }); }
       break;
     }
     case 'potion': {
