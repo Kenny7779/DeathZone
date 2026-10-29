@@ -420,7 +420,13 @@ function handle(ws, p, msg) {
       if (best.hp <= 0) {
         best.alive = false; best.respawn = now + 30000;
         const item = best.t === 'tree' ? 'wood' : best.t === 'rock' ? 'stone' : 'ore';
-        addItem(p.acct, item, 1 + Math.floor(rnd() * 2));
+        const a = p.acct; a.trades = a.trades || {};
+        const tr = a.trades[item] || (a.trades[item] = { lvl: 1, xp: 0 });
+        let qty = 1 + Math.floor(rnd() * 2);
+        if (rnd() < Math.min(0.5, 0.1 * (tr.lvl - 1))) qty++;       // oficio: +10% de rendimiento extra por nivel (máx. 50%)
+        addItem(a, item, qty);
+        tr.xp++;
+        if (tr.lvl < 10 && tr.xp >= tr.lvl * 5) { tr.xp -= tr.lvl * 5; tr.lvl++; send(ws, { t: 'msg', m: 'Oficio ' + item + ' sube a nivel ' + tr.lvl }); }
         addXp(p, 2); p.dirty = true;
       }
       break;
@@ -597,7 +603,7 @@ setInterval(() => {
         p.dirty = false;
         send(ws, { t: 'me', inv: p.acct.inv, silver: p.acct.silver, xp: p.acct.xp, lvl: p.acct.lvl,
           hp: Math.round(p.hp), mh: mhpOf(p.acct), mp: Math.round(p.mp), mm: mmpOf(p.acct), nx: p.acct.lvl * 40,
-          pw: powersView(p.acct), bar: p.acct.bar || [null, null, null], pb: Pw.powerBudget(p.acct.lvl) });
+          tr: p.acct.trades || {}, pw: powersView(p.acct), bar: p.acct.bar || [null, null, null], pb: Pw.powerBudget(p.acct.lvl) });
       }
     }
   }
@@ -621,7 +627,8 @@ window.WebSocket = function(){
 <script>
 // ================== Configuración ==================
 const TW = 64, TH = 32;
-const NAMES = { wood: 'Madera', stone: 'Piedra', ore: 'Mineral', nucleo: 'Núcleo de energía', espada: 'Espada', armadura: 'Armadura', pocion: 'Poción' };
+const NAMES = { wood: 'Madera', stone: 'Piedra', ore: 'Mineral', nucleo: 'Núcleo de maná', espada: 'Espada', armadura: 'Armadura', pocion: 'Poción' };
+const TRADE = { wood: 'Leñador', stone: 'Cantero', ore: 'Minero' };
 const cv = document.getElementById('c'), ctx = cv.getContext('2d');
 let DPR = 1, VW = 0, VH = 0;
 function resize() { DPR = Math.min(2, window.devicePixelRatio || 1); VW = innerWidth; VH = innerHeight; cv.width = VW * DPR; cv.height = VH * DPR; }
@@ -775,6 +782,7 @@ function renderPanel() {
     h += `<div class="row"><b>Plata</b><span>🪙 ${me.silver}</span></div>`;
     const ks = Object.keys(inv);
     h += ks.length ? ks.map((k) => `<div class="row"><span>${NAMES[k] || k}</span><b>x${inv[k]}</b></div>`).join('') : '<p><small>Inventario vacío. Recoge madera, piedra y mineral (⛏️).</small></p>';
+    h += '<p><b>Oficios</b></p>' + ['wood', 'stone', 'ore'].map((k) => { const t = (me.tr || {})[k] || { lvl: 1, xp: 0 }; return `<div class="row"><span>${TRADE[k]} <small>(${NAMES[k]})</small></span><span>Nv ${t.lvl}${t.lvl >= 10 ? ' (máx.)' : ` <small>${t.xp}/${t.lvl * 5}</small>`}</span></div>`; }).join('') + '<p><small>Cada nivel de oficio da +10% de probabilidad de recoger material extra (máx. 50%).</small></p>';
     h += '<p><small>La espada da +12 de daño y la armadura reduce el daño un 30%. En la zona de la muerte, si mueres pierdes TODO.</small></p>';
   } else if (tab === 'craft') {
     for (const k in recipes) {

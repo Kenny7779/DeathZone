@@ -241,7 +241,13 @@ function handle(ws, p, msg) {
       if (best.hp <= 0) {
         best.alive = false; best.respawn = now + 30000;
         const item = best.t === 'tree' ? 'wood' : best.t === 'rock' ? 'stone' : 'ore';
-        addItem(p.acct, item, 1 + Math.floor(rnd() * 2));
+        const a = p.acct; a.trades = a.trades || {};
+        const tr = a.trades[item] || (a.trades[item] = { lvl: 1, xp: 0 });
+        let qty = 1 + Math.floor(rnd() * 2);
+        if (rnd() < Math.min(0.5, 0.1 * (tr.lvl - 1))) qty++;       // oficio: +10% de rendimiento extra por nivel (máx. 50%)
+        addItem(a, item, qty);
+        tr.xp++;
+        if (tr.lvl < 10 && tr.xp >= tr.lvl * 5) { tr.xp -= tr.lvl * 5; tr.lvl++; send(ws, { t: 'msg', m: 'Oficio ' + item + ' sube a nivel ' + tr.lvl }); }
         addXp(p, 2); p.dirty = true;
       }
       break;
@@ -435,7 +441,7 @@ setInterval(() => {
         p.dirty = false;
         send(ws, { t: 'me', inv: p.acct.inv, silver: p.acct.silver, xp: p.acct.xp, lvl: p.acct.lvl,
           hp: Math.round(p.hp), mh: mhpOf(p.acct), mp: Math.round(p.mp), mm: mmpOf(p.acct), nx: p.acct.lvl * 40,
-          pw: powersView(p.acct), bar: p.acct.bar || [null, null, null], pb: Pw.powerBudget(p.acct.lvl) });
+          tr: p.acct.trades || {}, pw: powersView(p.acct), bar: p.acct.bar || [null, null, null], pb: Pw.powerBudget(p.acct.lvl) });
       }
     }
   }
