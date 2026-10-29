@@ -25,8 +25,16 @@
   #pbtns{position:fixed;left:calc(14px + env(safe-area-inset-left));bottom:calc(160px + env(safe-area-inset-bottom));display:flex;gap:8px;z-index:6}
   #pbtns button{width:56px;height:56px;border-radius:50%;padding:2px;font-size:11px;line-height:1.1;background:#2b3a52cc;border:3px solid #4a5d7c;touch-action:none;overflow:hidden;word-break:break-word}
   .pw-sel{width:100%}
-  .tnode{margin:6px 0 6px 4px;padding-left:10px}
-  .tkid{margin-left:14px;padding:3px 0;font-size:13px;color:#7c8798;border-left:1px dashed #ffffff30;padding-left:10px}
+  .tcap{padding:4px 0 8px}
+  .tbr{margin:8px 0 14px;padding:10px 6px 6px;background:#1c2330;border:1px solid #3a4658;border-radius:12px}
+  .tbr-t{text-align:center;font-weight:bold;letter-spacing:1px;margin-bottom:8px;color:#dfe6ee}
+  .tgrid{display:flex;justify-content:space-around;gap:6px;flex-wrap:wrap}
+  .tcol{display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0;flex:1 1 0}
+  .tkids{display:flex;gap:6px;justify-content:center;border-top:2px solid #6b5a3a;padding-top:8px;margin-top:2px}
+  .tn{position:relative;border-radius:50%;border:3px solid;background:#263041;display:flex;align-items:center;justify-content:center;cursor:pointer;touch-action:manipulation;flex:0 0 auto}
+  .tlock{position:absolute;right:-4px;bottom:-4px;font-style:normal;font-size:12px}
+  .tlabel{font-size:12px;font-weight:bold;text-align:center}
+  .tdesc{margin-top:8px;padding:10px;border:1px solid #6b5a3a;border-radius:10px;background:#2a2620}
   .pw-row{padding:6px 0;border-bottom:1px solid #ffffff12}
   .pw-mod{display:flex;align-items:center;gap:6px;justify-content:space-between;padding:3px 0}
   .pw-mod button{padding:2px 10px;font-size:16px;line-height:1.2}
@@ -868,20 +876,44 @@ function powerBtns() {
   }
 }
 
+let treeSel = null;
 function treeHTML() {
   if (!pp) return '';
-  let h = '<p><small>Las ramas con candado todavía no tienen función. Los elementos y la Forja ya funcionan.</small></p>';
+  const node = (n, col, icon, locked, size) => {
+    const on = !locked && n.on !== false;
+    const sel = treeSel === n.id ? 'box-shadow:0 0 0 3px #fff3,0 0 14px ' + col + ';' : '';
+    return `<div class="tn" data-tn="${n.id}" style="width:${size}px;height:${size}px;border-color:${on ? col : '#4a5361'};${on ? 'box-shadow:0 0 10px ' + col + '66;' : 'filter:grayscale(1);opacity:.6;'}${sel}">` +
+      `<span style="font-size:${Math.round(size * 0.42)}px">${icon}</span>${locked ? '<i class="tlock">🔒</i>' : ''}</div>`;
+  };
+  const sel = (id) => {
+    for (const br of pp.tree) for (const n of br.nodes) { if (n.id === id) return n; if (n.kids) { /* hijos son texto */ } }
+    return null;
+  };
+  let h = '<div class="tcap"><small>Toca un nodo para ver qué hace. Los nodos con candado todavía no tienen función.</small></div>';
   for (const br of pp.tree) {
-    h += `<div class="pw-row"><b>${esc(br.name)}</b></div>`;
+    h += `<div class="tbr"><div class="tbr-t">${esc(br.name)}</div><div class="tgrid">`;
     for (const n of br.nodes) {
       const col = n.src ? srcCol(n.src) : (n.on ? '#9be59b' : '#7c8798');
-      h += `<div class="tnode" style="border-left:3px solid ${col};${n.on ? '' : 'opacity:.55'}"><div class="row" style="border:0"><span><b style="color:${col}">${esc(n.name)}</b> <small>${n.on ? 'activo' : '🔒 próximamente'}</small><br><small>${esc(n.desc)}</small></span>${n.src ? `<button data-tsrc="${n.src}" style="padding:4px 10px">Forjar</button>` : ''}</div>` +
-        n.kids.map((k) => `<div class="tkid">🔒 ${esc(k)}</div>`).join('') + '</div>';
+      const icon = TREE_ICON[n.id] || '✦';
+      h += `<div class="tcol">` +
+        node(n, col, icon, !n.on, 56) +
+        `<div class="tlabel" style="color:${col}">${esc(n.name)}</div>` +
+        `<div class="tkids">` + n.kids.map((k, i) => node({ id: n.id + i, on: false }, col, TREE_KID_ICON[n.id] ? TREE_KID_ICON[n.id][i] : '✦', true, 40)).join('') + `</div>` +
+        `</div>`;
     }
+    h += `</div></div>`;
+  }
+  const cur = treeSel ? pp.tree.flatMap((b) => b.nodes).find((n) => n.id === treeSel) : null;
+  if (cur) {
+    h += `<div class="tdesc"><b style="color:${cur.src ? srcCol(cur.src) : '#9be59b'}">${esc(cur.name)}</b> <small>${cur.on ? 'activo' : '🔒 próximamente'}</small><br><small>${esc(cur.desc)}</small>` +
+      (cur.src ? `<div style="margin-top:6px"><button data-tsrc="${cur.src}" style="padding:4px 12px">Forjar poder de ${esc(cur.name)}</button></div>` : '') + `</div>`;
   }
   return h;
 }
+const TREE_ICON = { fuego: '🔥', hielo: '❄️', tierra: '⛰️', rayo: '⚡', forja: '⚒️', teleport: '🌀' };
+const TREE_KID_ICON = { fuego: ['🔥', '🧨'], hielo: ['💧', '🌨️'], tierra: ['🪨', '🗿'], rayo: ['⚡', '🌩️'], forja: ['🗡️', '🛡️'], teleport: ['🚪', '🔵'] };
 function bindTree() {
+  pbody.querySelectorAll('[data-tn]').forEach((b) => b.onclick = () => { treeSel = b.dataset.tn; renderPanel(); });
   pbody.querySelectorAll('[data-tsrc]').forEach((b) => b.onclick = () => { draft.src = b.dataset.tsrc; tab = 'powers'; syncTabs(); prev = null; reqPrev(); renderPanel(); });
 }
 
