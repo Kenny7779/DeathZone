@@ -3,6 +3,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
+const Pw = require('./powers');
 
 const PORT = process.env.PORT || 3000;
 const W = 100, H = 100;      // tamaño del mundo en tiles
@@ -16,7 +17,7 @@ const RECIPES = {
   armadura: { stone: 6, ore: 2 },    // -30% daño recibido
   pocion:   { wood: 3, stone: 1 },   // cura 60 HP
 };
-const ITEMS = ['wood', 'stone', 'ore', 'espada', 'armadura', 'pocion'];
+const ITEMS = ['wood', 'stone', 'ore', 'nucleo', 'espada', 'armadura', 'pocion'];
 
 // ---------- utilidades ----------
 let seed = 1337;
@@ -44,7 +45,9 @@ process.on('SIGINT', () => { save(); process.exit(0); });
 
 function getAcct(name) {
   if (!accounts[name]) accounts[name] = { name, inv: {}, silver: 20, xp: 0, lvl: 1 };
-  return accounts[name];
+  const a = accounts[name];
+  if (!a.starter) { a.starter = true; a.inv.nucleo = (a.inv.nucleo || 0) + 1; } // 1 núcleo para forjar el primer poder
+  return a;
 }
 
 // ---------- mundo ----------
@@ -89,7 +92,7 @@ function addXp(p, n) {
 function addItem(a, item, n) { a.inv[item] = (a.inv[item] || 0) + n; if (a.inv[item] <= 0) delete a.inv[item]; }
 
 function respawn(p) {
-  const s = spawnPoint(); p.x = s.x; p.y = s.y;
+  const s = spawnPoint(); p.x = s.x; p.y = s.y; p.slowUntil = 0;
   p.hp = mhpOf(p.acct); p.mp = mmpOf(p.acct); p.dirty = true;
 }
 function killPlayer(p, killer) {
@@ -102,6 +105,7 @@ function killPlayer(p, killer) {
     }
     a.inv = {}; a.silver -= silver;
   }
+  p.deaths = (p.deaths || 0) + 1;
   events.push({ t: 'death', x: p.x, y: p.y });
   send(p.ws, { t: 'msg', m: 'Has muerto. Has perdido tu inventario en la zona de la muerte.' });
   if (killer && killer.acct) addXp(killer, 20);
@@ -120,6 +124,7 @@ function hurtMob(m, amt, killer) {
     m.alive = false; m.respawn = Date.now() + 15000;
     const s = 5 + Math.floor(rnd() * 11);
     killer.acct.silver += s; addXp(killer, 8); killer.dirty = true;
+    if (rnd() < 0.3) addItem(killer.acct, 'nucleo', 1); // los núcleos solo salen de los monstruos de la zona de la muerte
   }
 }
 function enemiesNear(p, r) {
@@ -134,6 +139,51 @@ function enemiesNear(p, r) {
 }
 function hit(p, target, dmg) {
   if (target.kind === 'mob') hurtMob(target.e, dmg, p); else hurtPlayer(target.e, dmg, p);
+}
+
+// ---------- poderes personalizados (las reglas viven en powers.js) ----------
+const POWER_INIT = { parts: Pw.PARTS, modMax: Pw.MOD_MAX, modCost: Pw.MOD_COST, max: Pw.MAX_POWERS, forge: Pw.FORGE_COST, pvp: Pw.PVP_MUL };
+const flagsOf = (e, now) => (now < (e.slowUntil || 0) ? 2 : 0);
+function powersView(a) { return (a.powers || []).map((c, i) => ({ ...c, i, cost: Pw.powerCost(c), st: Pw.powerStats(c, a.lvl) })); }
+
+function castPower(p, ws, slot, now) {
+  const a = p.acct, idx = (a.bar || [])[slot], c = idx == null ? null : (a.powers || [])[idx];
+  if (!c) return send(ws, { t: 'msg', m: 'Ese espacio no tiene poder. Equipa uno en Menú > Poderes.' });
+  const key = 'p' + idx;
+  if (now < (p.cd[key] || 0) || now < (p.cd.pg || 0)) return;
+  const st = Pw.powerStats(c, a.lvl);
+  if (p.mp < st.mp) return send(ws, { t: 'msg', m: 'Sin energía' });
+  const mhp = mhpOf(a), S = Pw.PARTS.src[c.src], E = Pw.PARTS.eff[c.eff], SH = Pw.PARTS.shape[c.shape];
+  let targets = [];
+  if (c.eff !== 'curar') {
+    let near = enemiesNear(p, st.range);
+    if (c.shape === 'cono') near = near.filter((t) => { const dx = t.e.x - p.x, dy = t.e.y - p.y, d = Math.hypot(dx, dy) || 1; return d < 0.6 || (dx * p.fx + dy * p.fy) / d >= 0.55; });
+    targets = near.slice(0, SH.n);
+    if (!targets.length) return send(ws, { t: 'msg', m: 'Sin objetivo a tu alcance' });
+  }
+  p.mp -= st.mp; p.cd[key] = now + st.cd; p.cd.pg = now + Pw.POWER_GCD;
+  if (st.hpcost) p.hp = Math.max(1, p.hp - Math.round(mhp * st.hpcost));
+  events.push({ t: 'pw', sh: c.shape, src: c.src, x: p.x, y: p.y, dx: p.fx, dy: p.fy, r: st.range, tg: targets.slice(0, 4).map((t) => [t.e.x, t.e.y]) });
+  let dealt = 0;
+  for (const t of targets) {
+    const e = t.e, isPl = t.kind === 'pl';
+    let dmg = st.dmg;
+    if (isPl) dmg = Math.min(Math.round(dmg * Pw.PVP_MUL), Math.round(Pw.POWER_DMG_CAP * mhpOf(e.acct)));
+    const deaths = e.deaths || 0;
+    if (dmg > 0) { if (isPl) hurtPlayer(e, dmg, p); else hurtMob(e, dmg, p); dealt += dmg; }
+    if (isPl ? (e.deaths || 0) !== deaths : !e.alive) continue;
+    const slowMs = E.slow || (S.slow ? 1500 : 0), slowBy = Math.max(S.slow || 0, E.slow ? 0.4 : 0);
+    if (slowMs) { e.slowUntil = Math.max(e.slowUntil || 0, now + slowMs); e.slowMul = 1 - slowBy; }
+    const push = Math.min(3.5, (S.push || 0) + (E.push || 0)) * (isPl ? 0.6 : 1);
+    if (push) {
+      const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy) || 1;
+      e.x = clamp(e.x + dx / d * push, 0.5, W - 0.5); e.y = clamp(e.y + dy / d * push, 0.5, H - 0.5);
+    }
+  }
+  let heal = (E.heal ? st.heal * mhp : 0) + (E.leech ? E.leech * dealt : 0);
+  heal = Math.min(Math.round(heal), Math.round(Pw.POWER_HEAL_CAP * mhp));
+  if (heal > 0) { p.hp = Math.min(mhp, p.hp + heal); events.push({ t: 'heal', x: p.x, y: p.y, v: heal }); }
+  p.dirty = true;
 }
 
 // ---------- mensajes del cliente ----------
@@ -242,6 +292,52 @@ function handle(ws, p, msg) {
       p.dirty = true; broadcast({ t: 'market', list: listings });
       break;
     }
+    case 'pprev': {
+      if (now - (p.lastPrev || 0) < 100) return; p.lastPrev = now;
+      const c = Pw.cleanPower(msg.def);
+      if (!c) return send(ws, { t: 'pprev', r: { ok: false, err: 'Poder inválido' } });
+      const cost = Pw.powerCost(c), budget = Pw.powerBudget(p.acct.lvl);
+      send(ws, { t: 'pprev', r: { ok: cost <= budget, err: cost > budget ? 'Te pasas del presupuesto de puntos' : '', cost, budget, st: Pw.powerStats(c, p.acct.lvl) } });
+      break;
+    }
+    case 'pcreate': {
+      const a = p.acct, c = Pw.cleanPower(msg.def);
+      if (!c) return send(ws, { t: 'msg', m: 'Poder inválido' });
+      a.powers = a.powers || [];
+      if (a.powers.length >= Pw.MAX_POWERS) return send(ws, { t: 'msg', m: 'Ya tienes el máximo de poderes. Borra alguno.' });
+      if (Pw.powerCost(c) > Pw.powerBudget(a.lvl)) return send(ws, { t: 'msg', m: 'Te pasas del presupuesto de puntos' });
+      const F = Pw.FORGE_COST;
+      if ((a.inv.nucleo || 0) < F.nucleo || a.silver < F.silver) return send(ws, { t: 'msg', m: `Forjar cuesta ${F.nucleo} núcleo y ${F.silver} de plata` });
+      addItem(a, 'nucleo', -F.nucleo); a.silver -= F.silver;
+      if (!c.name) c.name = Pw.defaultPowerName(c);
+      a.powers.push(c);
+      a.bar = a.bar || [null, null, null];
+      const free = a.bar.indexOf(null); if (free >= 0) a.bar[free] = a.powers.length - 1;
+      p.dirty = true; send(ws, { t: 'msg', m: 'Forjaste: ' + c.name });
+      break;
+    }
+    case 'pdel': {
+      const a = p.acct, i = Math.floor(+msg.i);
+      if (!a.powers || !a.powers[i]) return;
+      a.powers.splice(i, 1);
+      a.bar = (a.bar || [null, null, null]).map((b) => (b === i ? null : b != null && b > i ? b - 1 : b));
+      p.dirty = true;
+      break;
+    }
+    case 'pbar': {
+      const a = p.acct, slot = Math.floor(+msg.slot), i = msg.i == null ? null : Math.floor(+msg.i);
+      if (!(slot >= 0 && slot < 3)) return;
+      if (i !== null && !(a.powers && a.powers[i])) return;
+      a.bar = a.bar || [null, null, null];
+      if (i !== null) a.bar = a.bar.map((b) => (b === i ? null : b));
+      a.bar[slot] = i; p.dirty = true;
+      break;
+    }
+    case 'pcast': {
+      const slot = Math.floor(+msg.slot);
+      if (slot >= 0 && slot < 3) castPower(p, ws, slot, now);
+      break;
+    }
     case 'chat': {
       if (now - (lastChat.get(ws) || 0) < 700) return;
       lastChat.set(ws, now);
@@ -280,7 +376,7 @@ wss.on('connection', (ws) => {
       p = { ws, id: newId(), acct, x: s.x, y: s.y, hp: mhpOf(acct), mp: mmpOf(acct), dx: 0, dy: 0, fx: 1, fy: 0,
         lastIn: Date.now(), cd: { atk: 0, sk: 0, dash: 0, gather: 0, pot: 0 }, dirty: true };
       players.set(ws, p);
-      send(ws, { t: 'init', id: p.id, W, H, SAFE_X, recipes: RECIPES, items: ITEMS,
+      send(ws, { t: 'init', id: p.id, W, H, SAFE_X, recipes: RECIPES, items: ITEMS, pp: POWER_INIT,
         res: resources.map((r) => ({ id: r.id, t: r.t, x: r.x, y: r.y })) });
       send(ws, { t: 'market', list: listings });
       return;
@@ -297,23 +393,25 @@ setInterval(() => {
 
   for (const p of players.values()) {
     if (now - p.lastIn > 1000) { p.dx = 0; p.dy = 0; }
-    p.x = clamp(p.x + p.dx * SPEED * dt, 0.5, W - 0.5);
-    p.y = clamp(p.y + p.dy * SPEED * dt, 0.5, H - 0.5);
+    const sp = SPEED * (now < (p.slowUntil || 0) ? (p.slowMul || 0.6) : 1);
+    p.x = clamp(p.x + p.dx * sp * dt, 0.5, W - 0.5);
+    p.y = clamp(p.y + p.dy * sp * dt, 0.5, H - 0.5);
     const mh = mhpOf(p.acct), mm = mmpOf(p.acct);
     if (p.hp < mh) p.hp = Math.min(mh, p.hp + 1 * dt);
     if (p.mp < mm) p.mp = Math.min(mm, p.mp + 3 * dt);
   }
 
   for (const m of mobs) {
-    if (!m.alive) { if (now >= m.respawn) { m.alive = true; m.hp = m.mhp; m.x = m.hx; m.y = m.hy; } continue; }
+    if (!m.alive) { if (now >= m.respawn) { m.alive = true; m.hp = m.mhp; m.x = m.hx; m.y = m.hy; m.slowUntil = 0; } continue; }
+    const mf = now < (m.slowUntil || 0) ? (m.slowMul || 0.6) : 1;
     let target = null, td = 7;
     for (const p of players.values()) { const d = dist(m, p); if (d < td && inRed(p.x)) { td = d; target = p; } }
     if (target && dist(m, { x: m.hx, y: m.hy }) < 14) {
-      if (td > 1.2) { m.x += ((target.x - m.x) / td) * 3 * dt; m.y += ((target.y - m.y) / td) * 3 * dt; }
+      if (td > 1.2) { m.x += ((target.x - m.x) / td) * 3 * mf * dt; m.y += ((target.y - m.y) / td) * 3 * mf * dt; }
       else if (now >= m.cd) { m.cd = now + 1000; hurtPlayer(target, 8, null); }
     } else {
       const hd = dist(m, { x: m.hx, y: m.hy });
-      if (hd > 0.5) { m.x += ((m.hx - m.x) / hd) * 2 * dt; m.y += ((m.hy - m.y) / hd) * 2 * dt; }
+      if (hd > 0.5) { m.x += ((m.hx - m.x) / hd) * 2 * mf * dt; m.y += ((m.hy - m.y) / hd) * 2 * mf * dt; }
     }
   }
 
@@ -323,8 +421,8 @@ setInterval(() => {
   if (tickN % 2 === 0 && players.size) { // 10 Hz
     const snap = {
       t: 's',
-      p: [...players.values()].map((p) => ({ id: p.id, n: p.acct.name, x: +p.x.toFixed(2), y: +p.y.toFixed(2), hp: Math.round(p.hp), mh: mhpOf(p.acct), l: p.acct.lvl, sw: p.acct.inv.espada > 0 ? 1 : 0 })),
-      m: mobs.filter((m) => m.alive).map((m) => ({ id: m.id, x: +m.x.toFixed(2), y: +m.y.toFixed(2), hp: m.hp, mh: m.mhp })),
+      p: [...players.values()].map((p) => ({ id: p.id, n: p.acct.name, x: +p.x.toFixed(2), y: +p.y.toFixed(2), hp: Math.round(p.hp), mh: mhpOf(p.acct), l: p.acct.lvl, sw: p.acct.inv.espada > 0 ? 1 : 0, fl: flagsOf(p, now) })),
+      m: mobs.filter((m) => m.alive).map((m) => ({ id: m.id, x: +m.x.toFixed(2), y: +m.y.toFixed(2), hp: m.hp, mh: m.mhp, fl: flagsOf(m, now) })),
       d: resources.filter((r) => !r.alive).map((r) => r.id),
       b: bags.map((b) => ({ id: b.id, x: b.x, y: b.y })),
       e: events,
@@ -335,7 +433,8 @@ setInterval(() => {
       if (p.dirty) {
         p.dirty = false;
         send(ws, { t: 'me', inv: p.acct.inv, silver: p.acct.silver, xp: p.acct.xp, lvl: p.acct.lvl,
-          hp: Math.round(p.hp), mh: mhpOf(p.acct), mp: Math.round(p.mp), mm: mmpOf(p.acct), nx: p.acct.lvl * 40 });
+          hp: Math.round(p.hp), mh: mhpOf(p.acct), mp: Math.round(p.mp), mm: mmpOf(p.acct), nx: p.acct.lvl * 40,
+          pw: powersView(p.acct), bar: p.acct.bar || [null, null, null], pb: Pw.powerBudget(p.acct.lvl) });
       }
     }
   }

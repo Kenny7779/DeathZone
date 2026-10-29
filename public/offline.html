@@ -16,16 +16,24 @@
   #info{font-size:13px;line-height:1.35;text-shadow:0 1px 2px #000}
   #zone{margin-left:auto;font-size:13px;padding:4px 10px;border-radius:12px;background:#0008}
   #zone.red{background:#a11d1dcc}
-  #chatlog{position:fixed;left:8px;bottom:calc(150px + env(safe-area-inset-bottom));width:min(60vw,320px);max-height:110px;overflow:hidden;font-size:12px;text-shadow:0 1px 2px #000;pointer-events:none;z-index:5}
+  #chatlog{position:fixed;left:8px;bottom:calc(228px + env(safe-area-inset-bottom));width:min(60vw,320px);max-height:110px;overflow:hidden;font-size:12px;text-shadow:0 1px 2px #000;pointer-events:none;z-index:5}
   #chatlog div{opacity:.9}
   #pad{position:fixed;left:calc(14px + env(safe-area-inset-left));bottom:calc(14px + env(safe-area-inset-bottom));width:130px;height:130px;border-radius:50%;background:#ffffff14;border:2px solid #ffffff33;z-index:6;touch-action:none}
   #knob{position:absolute;width:56px;height:56px;border-radius:50%;background:#ffffff55;left:37px;top:37px}
   #btns{position:fixed;right:calc(10px + env(safe-area-inset-right));bottom:calc(10px + env(safe-area-inset-bottom));width:210px;height:160px;z-index:6}
   #btns button{position:absolute;width:60px;height:60px;border-radius:50%;padding:0;font-size:12px;background:#2b3a52cc;touch-action:none}
+  #pbtns{position:fixed;left:calc(14px + env(safe-area-inset-left));bottom:calc(160px + env(safe-area-inset-bottom));display:flex;gap:8px;z-index:6}
+  #pbtns button{width:56px;height:56px;border-radius:50%;padding:2px;font-size:11px;line-height:1.1;background:#2b3a52cc;border:3px solid #4a5d7c;touch-action:none;overflow:hidden;word-break:break-word}
+  .pw-sel{width:100%}
+  .pw-row{padding:6px 0;border-bottom:1px solid #ffffff12}
+  .pw-mod{display:flex;align-items:center;gap:6px;justify-content:space-between;padding:3px 0}
+  .pw-mod button{padding:2px 10px;font-size:16px;line-height:1.2}
+  .pw-bar{display:inline-block;min-width:22px;padding:1px 6px;border-radius:6px;background:#ffffff18;margin-right:3px}
   #topbtns{position:fixed;right:8px;top:calc(48px + env(safe-area-inset-top));display:flex;gap:6px;z-index:7}
   #topbtns button{padding:6px 10px;font-size:13px}
   #panel{position:fixed;inset:50px 10px 10px 10px;background:#161c26f2;border:1px solid #3a4658;border-radius:14px;z-index:15;display:none;flex-direction:column;max-width:560px;margin:0 auto}
-  #panel .tabs{display:flex;gap:6px;padding:8px}
+  #panel .tabs{display:flex;flex-wrap:wrap;gap:6px;padding:8px}
+  #panel .tabs button{padding:8px 10px;font-size:13px}
   #panel .tabs button.on{background:#4a6fa8}
   #pbody{flex:1;overflow:auto;padding:8px 12px;font-size:14px;user-select:text;-webkit-user-select:text}
   .row{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #ffffff12}
@@ -58,6 +66,7 @@
 <div id="topbtns"><button id="bBag">🎒 Menú</button><button id="bChat">💬</button></div>
 <div id="chatlog"></div>
 
+<div id="pbtns"><button id="bP0">＋</button><button id="bP1">＋</button><button id="bP2">＋</button></div>
 <div id="pad"><div id="knob"></div></div>
 <div id="btns">
   <button id="bAtk"  style="right:0;bottom:50px;width:76px;height:76px;font-size:14px">⚔️<br>Atacar</button>
@@ -72,6 +81,7 @@
     <button data-tab="inv" class="on">Inventario</button>
     <button data-tab="craft">Crafteo</button>
     <button data-tab="market">Mercado</button>
+    <button data-tab="powers">Poderes</button>
     <button id="pclose" style="margin-left:auto">✕</button>
   </div>
   <div id="pbody"></div>
@@ -81,6 +91,86 @@
 
 <script>
 (function(){
+const Pw = (function(){ const module = { exports: {} };
+// Reglas de los poderes personalizados (la forja). Solo lógica pura, sin estado del juego:
+// la usan el servidor, la versión sin conexión y tools/balance-check.js.
+// Un poder = fuente + forma + efecto + hasta 3 niveles de 4 modificadores.
+// Todo lo que se puede elegir cuesta puntos, y el presupuesto de puntos sube con el nivel.
+
+const PARTS = {
+  src: {
+    fuego:    { name: 'Fuego',        cost: 2, dmg: 1.15, cd: 1.1,  mp: 1.0, color: '#ff7a2e', ico: '🔥' },
+    hielo:    { name: 'Hielo',        cost: 2, dmg: 0.9,  cd: 1.0,  mp: 0.9, slow: 0.45, color: '#8fd8ff', ico: '❄️' },
+    rayo:     { name: 'Electricidad', cost: 2, dmg: 0.95, cd: 0.85, mp: 1.1, color: '#f5e65a', ico: '⚡' },
+    sangre:   { name: 'Sangre',       cost: 3, dmg: 1.0,  cd: 1.0,  mp: 0.7, hpcost: 0.06, color: '#c0283c', ico: '🩸' },
+    gravedad: { name: 'Gravedad',     cost: 3, dmg: 0.8,  cd: 1.0,  mp: 1.0, push: 1.5, color: '#9a7aff', ico: '🌑' },
+  },
+  shape: {
+    proyectil: { name: 'Proyectil', cost: 2, range: 7,   cd: 2600, mp: 12, dmg: 1.3, n: 1 },
+    cono:      { name: 'Cono',      cost: 3, range: 3.6, cd: 3200, mp: 16, dmg: 1.1, n: 4 },
+    area:      { name: 'Área',      cost: 4, range: 2.8, cd: 4200, mp: 22, dmg: 0.9, n: 99 },
+  },
+  eff: {
+    dano:       { name: 'Daño',       cost: 1, dmg: 1.0 },
+    ralentizar: { name: 'Ralentizar', cost: 2, dmg: 0.55, slow: 2500 },
+    empujar:    { name: 'Empujar',    cost: 2, dmg: 0.55, push: 2.5 },
+    robarVida:  { name: 'Robar vida', cost: 3, dmg: 0.75, leech: 0.5 },
+    curar:      { name: 'Curar',      cost: 2, dmg: 0,    heal: 0.22 },
+  },
+  mod: {
+    alcance:    { name: 'Alcance',    desc: '+20% de alcance por nivel' },
+    potencia:   { name: 'Potencia',   desc: '+15% de efecto y +4 de energía por nivel' },
+    rapidez:    { name: 'Rapidez',    desc: '-12% de enfriamiento por nivel' },
+    eficiencia: { name: 'Eficiencia', desc: '-12% de energía por nivel' },
+  },
+};
+
+const MOD_MAX = 3;
+const MOD_COST = [0, 1, 3, 7];   // costo acumulado por nivel: rendimientos decrecientes
+const POWER_MIN_CD = 2000;       // ningún poder se repite en menos de 2 s
+const POWER_GCD = 900;           // entre dos poderes cualquiera pasan al menos 0,9 s
+const POWER_DMG_CAP = 0.4;       // un golpe nunca pasa del 40% de la vida máxima de alguien de tu nivel
+const POWER_HEAL_CAP = 0.3;      // una cura nunca pasa del 30% de la vida máxima
+const PVP_MUL = 0.6;             // contra otros jugadores los poderes hacen 40% menos
+const MAX_POWERS = 6;
+const FORGE_COST = { nucleo: 1, silver: 10 };
+
+const powerBudget = (lvl) => Math.min(40, 10 + lvl);
+
+function cleanPower(d) {
+  if (!d || !PARTS.src[d.src] || !PARTS.shape[d.shape] || !PARTS.eff[d.eff]) return null;
+  const mods = {};
+  for (const k in PARTS.mod) {
+    const v = Math.floor(+(d.mods && d.mods[k]) || 0);
+    if (v < 0 || v > MOD_MAX) return null;
+    mods[k] = v;
+  }
+  const name = String(d.name || '').replace(/[^\p{L}\p{N}_\- ]/gu, '').trim().slice(0, 14);
+  return { name, src: d.src, shape: d.shape, eff: d.eff, mods };
+}
+
+const defaultPowerName = (c) => PARTS.src[c.src].name + ' ' + PARTS.shape[c.shape].name;
+
+const powerCost = (c) =>
+  PARTS.src[c.src].cost + PARTS.shape[c.shape].cost + PARTS.eff[c.eff].cost +
+  Object.keys(c.mods).reduce((s, k) => s + MOD_COST[c.mods[k]], 0);
+
+function powerStats(c, lvl) {
+  const S = PARTS.src[c.src], SH = PARTS.shape[c.shape], E = PARTS.eff[c.eff], m = c.mods;
+  const mhp = 100 + (lvl - 1) * 10;
+  let dmg = (16 + lvl * 4) * S.dmg * SH.dmg * E.dmg * (1 + 0.15 * m.potencia);
+  dmg = Math.min(dmg, POWER_DMG_CAP * mhp);
+  const cd = Math.max(POWER_MIN_CD, Math.round(SH.cd * S.cd * (1 - 0.12 * m.rapidez)));
+  const mp = Math.max(6, Math.round((SH.mp * S.mp + 4 * m.potencia) * (1 - 0.12 * m.eficiencia) * (1 + 0.04 * (lvl - 1))));
+  const range = +(SH.range * (1 + 0.2 * m.alcance)).toFixed(1);
+  const heal = E.heal ? Math.min(POWER_HEAL_CAP, E.heal * (1 + 0.15 * m.potencia)) : 0;
+  return { dmg: Math.round(dmg), cd, mp, range, heal: +heal.toFixed(2), hpcost: S.hpcost || 0 };
+}
+
+module.exports = { PARTS, MOD_MAX, MOD_COST, POWER_MIN_CD, POWER_GCD, POWER_DMG_CAP, POWER_HEAL_CAP, PVP_MUL, MAX_POWERS, FORGE_COST,
+  powerBudget, cleanPower, defaultPowerName, powerCost, powerStats };
+
+return module.exports; })();
 const W = 100, H = 100;      // tamaño del mundo en tiles
 const SAFE_X = 30;           // x < SAFE_X = ciudad segura; x >= SAFE_X = zona de la muerte (PvP + full loot)
 const TICK = 50;             // 20 Hz
@@ -92,13 +182,14 @@ try { const d = JSON.parse(store.get('rp_offline_data') || '{}'); accounts = d.a
 function save(){ store.set('rp_offline_data', JSON.stringify({ accounts, listings, nextId })); }
 setInterval(save, 10000);
 addEventListener('pagehide', save);
-function getAcct(name){ if (!accounts[name]) accounts[name] = { name, inv: {}, silver: 20, xp: 0, lvl: 1 }; return accounts[name]; }
+function getAcct(name){ if (!accounts[name]) accounts[name] = { name, inv: {}, silver: 20, xp: 0, lvl: 1 }; const a = accounts[name];
+  if (!a.starter) { a.starter = true; a.inv.nucleo = (a.inv.nucleo || 0) + 1; } return a; }
 const RECIPES = {
   espada:   { wood: 4, ore: 3 },     // +12 de daño
   armadura: { stone: 6, ore: 2 },    // -30% daño recibido
   pocion:   { wood: 3, stone: 1 },   // cura 60 HP
 };
-const ITEMS = ['wood', 'stone', 'ore', 'espada', 'armadura', 'pocion'];
+const ITEMS = ['wood', 'stone', 'ore', 'nucleo', 'espada', 'armadura', 'pocion'];
 
 // ---------- utilidades ----------
 let seed = 1337;
@@ -152,7 +243,7 @@ function addXp(p, n) {
 function addItem(a, item, n) { a.inv[item] = (a.inv[item] || 0) + n; if (a.inv[item] <= 0) delete a.inv[item]; }
 
 function respawn(p) {
-  const s = spawnPoint(); p.x = s.x; p.y = s.y;
+  const s = spawnPoint(); p.x = s.x; p.y = s.y; p.slowUntil = 0;
   p.hp = mhpOf(p.acct); p.mp = mmpOf(p.acct); p.dirty = true;
 }
 function killPlayer(p, killer) {
@@ -165,6 +256,7 @@ function killPlayer(p, killer) {
     }
     a.inv = {}; a.silver -= silver;
   }
+  p.deaths = (p.deaths || 0) + 1;
   events.push({ t: 'death', x: p.x, y: p.y });
   send(p.ws, { t: 'msg', m: 'Has muerto. Has perdido tu inventario en la zona de la muerte.' });
   if (killer && killer.acct) addXp(killer, 20);
@@ -183,6 +275,7 @@ function hurtMob(m, amt, killer) {
     m.alive = false; m.respawn = Date.now() + 15000;
     const s = 5 + Math.floor(rnd() * 11);
     killer.acct.silver += s; addXp(killer, 8); killer.dirty = true;
+    if (rnd() < 0.3) addItem(killer.acct, 'nucleo', 1); // los núcleos solo salen de los monstruos de la zona de la muerte
   }
 }
 function enemiesNear(p, r) {
@@ -197,6 +290,51 @@ function enemiesNear(p, r) {
 }
 function hit(p, target, dmg) {
   if (target.kind === 'mob') hurtMob(target.e, dmg, p); else hurtPlayer(target.e, dmg, p);
+}
+
+// ---------- poderes personalizados (las reglas viven en powers.js) ----------
+const POWER_INIT = { parts: Pw.PARTS, modMax: Pw.MOD_MAX, modCost: Pw.MOD_COST, max: Pw.MAX_POWERS, forge: Pw.FORGE_COST, pvp: Pw.PVP_MUL };
+const flagsOf = (e, now) => (now < (e.slowUntil || 0) ? 2 : 0);
+function powersView(a) { return (a.powers || []).map((c, i) => ({ ...c, i, cost: Pw.powerCost(c), st: Pw.powerStats(c, a.lvl) })); }
+
+function castPower(p, ws, slot, now) {
+  const a = p.acct, idx = (a.bar || [])[slot], c = idx == null ? null : (a.powers || [])[idx];
+  if (!c) return send(ws, { t: 'msg', m: 'Ese espacio no tiene poder. Equipa uno en Menú > Poderes.' });
+  const key = 'p' + idx;
+  if (now < (p.cd[key] || 0) || now < (p.cd.pg || 0)) return;
+  const st = Pw.powerStats(c, a.lvl);
+  if (p.mp < st.mp) return send(ws, { t: 'msg', m: 'Sin energía' });
+  const mhp = mhpOf(a), S = Pw.PARTS.src[c.src], E = Pw.PARTS.eff[c.eff], SH = Pw.PARTS.shape[c.shape];
+  let targets = [];
+  if (c.eff !== 'curar') {
+    let near = enemiesNear(p, st.range);
+    if (c.shape === 'cono') near = near.filter((t) => { const dx = t.e.x - p.x, dy = t.e.y - p.y, d = Math.hypot(dx, dy) || 1; return d < 0.6 || (dx * p.fx + dy * p.fy) / d >= 0.55; });
+    targets = near.slice(0, SH.n);
+    if (!targets.length) return send(ws, { t: 'msg', m: 'Sin objetivo a tu alcance' });
+  }
+  p.mp -= st.mp; p.cd[key] = now + st.cd; p.cd.pg = now + Pw.POWER_GCD;
+  if (st.hpcost) p.hp = Math.max(1, p.hp - Math.round(mhp * st.hpcost));
+  events.push({ t: 'pw', sh: c.shape, src: c.src, x: p.x, y: p.y, dx: p.fx, dy: p.fy, r: st.range, tg: targets.slice(0, 4).map((t) => [t.e.x, t.e.y]) });
+  let dealt = 0;
+  for (const t of targets) {
+    const e = t.e, isPl = t.kind === 'pl';
+    let dmg = st.dmg;
+    if (isPl) dmg = Math.min(Math.round(dmg * Pw.PVP_MUL), Math.round(Pw.POWER_DMG_CAP * mhpOf(e.acct)));
+    const deaths = e.deaths || 0;
+    if (dmg > 0) { if (isPl) hurtPlayer(e, dmg, p); else hurtMob(e, dmg, p); dealt += dmg; }
+    if (isPl ? (e.deaths || 0) !== deaths : !e.alive) continue;
+    const slowMs = E.slow || (S.slow ? 1500 : 0), slowBy = Math.max(S.slow || 0, E.slow ? 0.4 : 0);
+    if (slowMs) { e.slowUntil = Math.max(e.slowUntil || 0, now + slowMs); e.slowMul = 1 - slowBy; }
+    const push = Math.min(3.5, (S.push || 0) + (E.push || 0)) * (isPl ? 0.6 : 1);
+    if (push) {
+      const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy) || 1;
+      e.x = clamp(e.x + dx / d * push, 0.5, W - 0.5); e.y = clamp(e.y + dy / d * push, 0.5, H - 0.5);
+    }
+  }
+  let heal = (E.heal ? st.heal * mhp : 0) + (E.leech ? E.leech * dealt : 0);
+  heal = Math.min(Math.round(heal), Math.round(Pw.POWER_HEAL_CAP * mhp));
+  if (heal > 0) { p.hp = Math.min(mhp, p.hp + heal); events.push({ t: 'heal', x: p.x, y: p.y, v: heal }); }
+  p.dirty = true;
 }
 
 // ---------- mensajes del cliente ----------
@@ -305,6 +443,52 @@ function handle(ws, p, msg) {
       p.dirty = true; broadcast({ t: 'market', list: listings });
       break;
     }
+    case 'pprev': {
+      if (now - (p.lastPrev || 0) < 100) return; p.lastPrev = now;
+      const c = Pw.cleanPower(msg.def);
+      if (!c) return send(ws, { t: 'pprev', r: { ok: false, err: 'Poder inválido' } });
+      const cost = Pw.powerCost(c), budget = Pw.powerBudget(p.acct.lvl);
+      send(ws, { t: 'pprev', r: { ok: cost <= budget, err: cost > budget ? 'Te pasas del presupuesto de puntos' : '', cost, budget, st: Pw.powerStats(c, p.acct.lvl) } });
+      break;
+    }
+    case 'pcreate': {
+      const a = p.acct, c = Pw.cleanPower(msg.def);
+      if (!c) return send(ws, { t: 'msg', m: 'Poder inválido' });
+      a.powers = a.powers || [];
+      if (a.powers.length >= Pw.MAX_POWERS) return send(ws, { t: 'msg', m: 'Ya tienes el máximo de poderes. Borra alguno.' });
+      if (Pw.powerCost(c) > Pw.powerBudget(a.lvl)) return send(ws, { t: 'msg', m: 'Te pasas del presupuesto de puntos' });
+      const F = Pw.FORGE_COST;
+      if ((a.inv.nucleo || 0) < F.nucleo || a.silver < F.silver) return send(ws, { t: 'msg', m: `Forjar cuesta ${F.nucleo} núcleo y ${F.silver} de plata` });
+      addItem(a, 'nucleo', -F.nucleo); a.silver -= F.silver;
+      if (!c.name) c.name = Pw.defaultPowerName(c);
+      a.powers.push(c);
+      a.bar = a.bar || [null, null, null];
+      const free = a.bar.indexOf(null); if (free >= 0) a.bar[free] = a.powers.length - 1;
+      p.dirty = true; send(ws, { t: 'msg', m: 'Forjaste: ' + c.name });
+      break;
+    }
+    case 'pdel': {
+      const a = p.acct, i = Math.floor(+msg.i);
+      if (!a.powers || !a.powers[i]) return;
+      a.powers.splice(i, 1);
+      a.bar = (a.bar || [null, null, null]).map((b) => (b === i ? null : b != null && b > i ? b - 1 : b));
+      p.dirty = true;
+      break;
+    }
+    case 'pbar': {
+      const a = p.acct, slot = Math.floor(+msg.slot), i = msg.i == null ? null : Math.floor(+msg.i);
+      if (!(slot >= 0 && slot < 3)) return;
+      if (i !== null && !(a.powers && a.powers[i])) return;
+      a.bar = a.bar || [null, null, null];
+      if (i !== null) a.bar = a.bar.map((b) => (b === i ? null : b));
+      a.bar[slot] = i; p.dirty = true;
+      break;
+    }
+    case 'pcast': {
+      const slot = Math.floor(+msg.slot);
+      if (slot >= 0 && slot < 3) castPower(p, ws, slot, now);
+      break;
+    }
     case 'chat': {
       if (now - (lastChat.get(ws) || 0) < 700) return;
       lastChat.set(ws, now);
@@ -329,7 +513,7 @@ function serverConnect(ws){
       p = { ws, id: newId(), acct, x: s.x, y: s.y, hp: mhpOf(acct), mp: mmpOf(acct), dx: 0, dy: 0, fx: 1, fy: 0,
         lastIn: Date.now(), cd: { atk: 0, sk: 0, dash: 0, gather: 0, pot: 0 }, dirty: true };
       players.set(ws, p);
-      send(ws, { t: 'init', id: p.id, W, H, SAFE_X, recipes: RECIPES, items: ITEMS, res: resources.map((r) => ({ id: r.id, t: r.t, x: r.x, y: r.y })) });
+      send(ws, { t: 'init', id: p.id, W, H, SAFE_X, recipes: RECIPES, items: ITEMS, pp: POWER_INIT, res: resources.map((r) => ({ id: r.id, t: r.t, x: r.x, y: r.y })) });
       send(ws, { t: 'market', list: listings });
       return;
     }
@@ -343,23 +527,25 @@ setInterval(() => {
 
   for (const p of players.values()) {
     if (now - p.lastIn > 1000) { p.dx = 0; p.dy = 0; }
-    p.x = clamp(p.x + p.dx * SPEED * dt, 0.5, W - 0.5);
-    p.y = clamp(p.y + p.dy * SPEED * dt, 0.5, H - 0.5);
+    const sp = SPEED * (now < (p.slowUntil || 0) ? (p.slowMul || 0.6) : 1);
+    p.x = clamp(p.x + p.dx * sp * dt, 0.5, W - 0.5);
+    p.y = clamp(p.y + p.dy * sp * dt, 0.5, H - 0.5);
     const mh = mhpOf(p.acct), mm = mmpOf(p.acct);
     if (p.hp < mh) p.hp = Math.min(mh, p.hp + 1 * dt);
     if (p.mp < mm) p.mp = Math.min(mm, p.mp + 3 * dt);
   }
 
   for (const m of mobs) {
-    if (!m.alive) { if (now >= m.respawn) { m.alive = true; m.hp = m.mhp; m.x = m.hx; m.y = m.hy; } continue; }
+    if (!m.alive) { if (now >= m.respawn) { m.alive = true; m.hp = m.mhp; m.x = m.hx; m.y = m.hy; m.slowUntil = 0; } continue; }
+    const mf = now < (m.slowUntil || 0) ? (m.slowMul || 0.6) : 1;
     let target = null, td = 7;
     for (const p of players.values()) { const d = dist(m, p); if (d < td && inRed(p.x)) { td = d; target = p; } }
     if (target && dist(m, { x: m.hx, y: m.hy }) < 14) {
-      if (td > 1.2) { m.x += ((target.x - m.x) / td) * 3 * dt; m.y += ((target.y - m.y) / td) * 3 * dt; }
+      if (td > 1.2) { m.x += ((target.x - m.x) / td) * 3 * mf * dt; m.y += ((target.y - m.y) / td) * 3 * mf * dt; }
       else if (now >= m.cd) { m.cd = now + 1000; hurtPlayer(target, 8, null); }
     } else {
       const hd = dist(m, { x: m.hx, y: m.hy });
-      if (hd > 0.5) { m.x += ((m.hx - m.x) / hd) * 2 * dt; m.y += ((m.hy - m.y) / hd) * 2 * dt; }
+      if (hd > 0.5) { m.x += ((m.hx - m.x) / hd) * 2 * mf * dt; m.y += ((m.hy - m.y) / hd) * 2 * mf * dt; }
     }
   }
 
@@ -369,8 +555,8 @@ setInterval(() => {
   if (tickN % 2 === 0 && players.size) { // 10 Hz
     const snap = {
       t: 's',
-      p: [...players.values()].map((p) => ({ id: p.id, n: p.acct.name, x: +p.x.toFixed(2), y: +p.y.toFixed(2), hp: Math.round(p.hp), mh: mhpOf(p.acct), l: p.acct.lvl, sw: p.acct.inv.espada > 0 ? 1 : 0 })),
-      m: mobs.filter((m) => m.alive).map((m) => ({ id: m.id, x: +m.x.toFixed(2), y: +m.y.toFixed(2), hp: m.hp, mh: m.mhp })),
+      p: [...players.values()].map((p) => ({ id: p.id, n: p.acct.name, x: +p.x.toFixed(2), y: +p.y.toFixed(2), hp: Math.round(p.hp), mh: mhpOf(p.acct), l: p.acct.lvl, sw: p.acct.inv.espada > 0 ? 1 : 0, fl: flagsOf(p, now) })),
+      m: mobs.filter((m) => m.alive).map((m) => ({ id: m.id, x: +m.x.toFixed(2), y: +m.y.toFixed(2), hp: m.hp, mh: m.mhp, fl: flagsOf(m, now) })),
       d: resources.filter((r) => !r.alive).map((r) => r.id),
       b: bags.map((b) => ({ id: b.id, x: b.x, y: b.y })),
       e: events,
@@ -381,7 +567,8 @@ setInterval(() => {
       if (p.dirty) {
         p.dirty = false;
         send(ws, { t: 'me', inv: p.acct.inv, silver: p.acct.silver, xp: p.acct.xp, lvl: p.acct.lvl,
-          hp: Math.round(p.hp), mh: mhpOf(p.acct), mp: Math.round(p.mp), mm: mmpOf(p.acct), nx: p.acct.lvl * 40 });
+          hp: Math.round(p.hp), mh: mhpOf(p.acct), mp: Math.round(p.mp), mm: mmpOf(p.acct), nx: p.acct.lvl * 40,
+          pw: powersView(p.acct), bar: p.acct.bar || [null, null, null], pb: Pw.powerBudget(p.acct.lvl) });
       }
     }
   }
@@ -405,7 +592,7 @@ window.WebSocket = function(){
 <script>
 // ================== Configuración ==================
 const TW = 64, TH = 32;
-const NAMES = { wood: 'Madera', stone: 'Piedra', ore: 'Mineral', espada: 'Espada', armadura: 'Armadura', pocion: 'Poción' };
+const NAMES = { wood: 'Madera', stone: 'Piedra', ore: 'Mineral', nucleo: 'Núcleo de energía', espada: 'Espada', armadura: 'Armadura', pocion: 'Poción' };
 const cv = document.getElementById('c'), ctx = cv.getContext('2d');
 let DPR = 1, VW = 0, VH = 0;
 function resize() { DPR = Math.min(2, window.devicePixelRatio || 1); VW = innerWidth; VH = innerHeight; cv.width = VW * DPR; cv.height = VH * DPR; }
@@ -418,6 +605,10 @@ const players = new Map(), mobs = new Map();
 let bags = [], fx = [], me = { inv: {}, silver: 0, xp: 0, lvl: 1, hp: 100, mh: 100, mp: 50, mm: 50, nx: 40 };
 let market = [], zoomK = 1;
 let cd = { sk: 0, dash: 0, atk: 0 };
+let pp = null, cdP = [0, 0, 0], prev = null, prevT = null, lastPSig = '';
+let draft = { name: '', src: 'fuego', shape: 'proyectil', eff: 'dano', mods: { alcance: 0, potencia: 0, rapidez: 0, eficiencia: 0 } };
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const srcCol = (k) => (pp && pp.parts.src[k] ? pp.parts.src[k].color : '#fff');
 
 const iso = (x, y) => ({ x: (x - y) * TW / 2, y: (x + y) * TH / 2 });
 function toast(m, t = 2200) { const e = document.getElementById('toast'); e.textContent = m; e.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(() => e.style.display = 'none', t); }
@@ -436,10 +627,12 @@ const send = (o) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o));
 function onMsg(m) {
   switch (m.t) {
     case 'init':
-      myId = m.id; W = m.W; H = m.H; SAFE_X = m.SAFE_X; recipes = m.recipes; items = m.items; resList = m.res;
+      myId = m.id; W = m.W; H = m.H; SAFE_X = m.SAFE_X; recipes = m.recipes; items = m.items; resList = m.res; pp = m.pp;
       document.getElementById('login').style.display = 'none'; break;
     case 'err': document.getElementById('loginErr').textContent = m.m; document.getElementById('login').style.display = 'flex'; break;
-    case 'me': me = m; hud(); if (panelOpen) renderPanel(); break;
+    case 'me': me = m; hud(); powerBtns();
+      if (panelOpen) { if (tab === 'powers') { if (powersSig() !== lastPSig) renderPanel(); } else renderPanel(); } break;
+    case 'pprev': prev = m.r; updatePrev(); break;
     case 'market': market = m.list; if (panelOpen && tab === 'market') renderPanel(); break;
     case 'msg': toast(m.m); break;
     case 'chat': {
@@ -481,7 +674,7 @@ addEventListener('keydown', (e) => {
   keys[e.key.toLowerCase()] = true;
   const k = e.key.toLowerCase();
   if (k === ' ' || k === 'j') act('atk'); if (k === 'k') act('sk'); if (k === 'l') act('dash');
-  if (k === 'e') act('gather'); if (k === 'q') act('potion'); if (k === 'b') togglePanel(); if (k === 'enter') openChat();
+  if (k === '1' || k === '2' || k === '3') act('p' + (+k - 1)); if (k === 'e') act('gather'); if (k === 'q') act('potion'); if (k === 'b') togglePanel(); if (k === 'enter') openChat();
 });
 addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
 function act(a) {
@@ -491,6 +684,12 @@ function act(a) {
   if (a === 'dash') { send({ t: 'dash' }); cd.dash = n + 4000; }
   if (a === 'gather') send({ t: 'gather' });
   if (a === 'potion') send({ t: 'potion' });
+  if (a.length === 2 && a[0] === 'p') castSlot(+a[1]);
+}
+function castSlot(i) {
+  const idx = me.bar && me.bar[i], d = idx != null && me.pw ? me.pw[idx] : null;
+  if (!d) { if (!panelOpen) togglePanel(); tab = 'powers'; syncTabs(); renderPanel(); return; }
+  send({ t: 'pcast', slot: i }); cdP[i] = performance.now() + d.st.cd;
 }
 // pantalla -> mundo
 function scr2world(sx, sy) { const x = (sx / (TW / 2) + sy / (TH / 2)) / 2, y = (sy / (TH / 2) - sx / (TW / 2)) / 2; const l = Math.hypot(x, y) || 1; return [x / l, y / l]; }
@@ -526,7 +725,7 @@ function bind(id, a, repeat) {
   const stop = () => { clearInterval(t); t = null; };
   b.addEventListener('pointerdown', start); b.addEventListener('pointerup', stop); b.addEventListener('pointerleave', stop); b.addEventListener('pointercancel', stop);
 }
-bind('bAtk', 'atk', true); bind('bSk', 'sk'); bind('bDash', 'dash'); bind('bGat', 'gather', true); bind('bPot', 'potion');
+bind('bP0', 'p0'); bind('bP1', 'p1'); bind('bP2', 'p2'); bind('bAtk', 'atk', true); bind('bSk', 'sk'); bind('bDash', 'dash'); bind('bGat', 'gather', true); bind('bPot', 'potion');
 
 function openChat() { const b = document.getElementById('chatbox'); b.style.display = 'block'; document.getElementById('chatin').focus(); }
 function closeChat() { document.getElementById('chatbox').style.display = 'none'; document.getElementById('chatin').blur(); }
@@ -538,7 +737,8 @@ let panelOpen = false, tab = 'inv';
 const panel = document.getElementById('panel'), pbody = document.getElementById('pbody');
 function togglePanel() { panelOpen = !panelOpen; panel.style.display = panelOpen ? 'flex' : 'none'; if (panelOpen) renderPanel(); }
 document.getElementById('pclose').onclick = togglePanel;
-panel.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => { tab = b.dataset.tab; panel.querySelectorAll('[data-tab]').forEach((x) => x.classList.toggle('on', x === b)); renderPanel(); });
+function syncTabs() { panel.querySelectorAll('[data-tab]').forEach((x) => x.classList.toggle('on', x.dataset.tab === tab)); }
+panel.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => { tab = b.dataset.tab; syncTabs(); if (tab === 'powers') { prev = null; reqPrev(); } renderPanel(); });
 function renderPanel() {
   const keep = pbody.scrollTop; let h = '';
   const inv = me.inv || {};
@@ -552,6 +752,8 @@ function renderPanel() {
       const r = recipes[k], ok = Object.keys(r).every((m) => (inv[m] || 0) >= r[m]);
       h += `<div class="row"><div><b>${NAMES[k]}</b><br><small>${Object.keys(r).map((m) => `${NAMES[m]} ${inv[m] || 0}/${r[m]}`).join(' · ')}</small></div><button data-craft="${k}" ${ok ? '' : 'disabled style="opacity:.4"'}>Fabricar</button></div>`;
     }
+  } else if (tab === 'powers') {
+    h += powersHTML();
   } else {
     const inSafe = (players.get(myId) || { x: 0 }).x < SAFE_X;
     if (!inSafe) h += '<p style="color:#ff9a9a">El mercado solo está disponible en la ciudad segura (zona verde).</p>';
@@ -564,8 +766,82 @@ function renderPanel() {
   pbody.querySelectorAll('[data-craft]').forEach((b) => b.onclick = () => send({ t: 'craft', item: b.dataset.craft }));
   pbody.querySelectorAll('[data-buy]').forEach((b) => b.onclick = () => send({ t: 'buy', id: +b.dataset.buy }));
   pbody.querySelectorAll('[data-cancel]').forEach((b) => b.onclick = () => send({ t: 'cancel', id: +b.dataset.cancel }));
+  if (tab === 'powers') bindPowers();
   const go = document.getElementById('sGo');
   if (go) go.onclick = () => send({ t: 'sell', item: document.getElementById('sItem').value, qty: +document.getElementById('sQty').value, price: +document.getElementById('sPrice').value });
+}
+
+
+// ================== Poderes (forja) ==================
+function powersSig() { return JSON.stringify([me.pw, me.bar, (me.inv || {}).nucleo, me.silver, me.pb]); }
+function modsText(c) { const M = pp.parts.mod; return Object.keys(c.mods).filter((k) => c.mods[k] > 0).map((k) => M[k].name + ' ' + c.mods[k]).join(', '); }
+function statText(st) {
+  const t = [];
+  if (st.dmg) t.push('Daño ' + st.dmg);
+  if (st.heal) t.push('Cura ' + Math.round(st.heal * 100) + '%');
+  t.push('Recarga ' + (st.cd / 1000).toFixed(1) + 's', 'Energía ' + st.mp, 'Alcance ' + st.range);
+  if (st.hpcost) t.push('Vida -' + Math.round(st.hpcost * 100) + '%');
+  return t.join(' · ');
+}
+function powersHTML() {
+  if (!pp) return '';
+  lastPSig = powersSig();
+  const P = pp.parts, list = me.pw || [], bar = me.bar || [null, null, null], inv = me.inv || {};
+  let h = `<div class="row"><span>Presupuesto por poder: <b>${me.pb} pts</b><br><small>Forjar cuesta ${pp.forge.nucleo} núcleo y ${pp.forge.silver} de plata. Los núcleos los sueltan los monstruos de la zona de la muerte.</small></span><span>⚛ ${inv.nucleo || 0}</span></div>`;
+  h += '<div class="pw-row"><b>Barra</b> <small>(teclas 1, 2, 3)</small><br>' + [0, 1, 2].map((s) => {
+    const d = bar[s] != null ? list[bar[s]] : null;
+    return `<span class="pw-bar">${s + 1}: ${d ? `<span style="color:${srcCol(d.src)}">${esc(d.name)}</span>` : '<small>vacío</small>'}</span>`;
+  }).join('') + '</div>';
+  if (!list.length) h += '<p><small>Aún no tienes poderes. Forja el primero abajo.</small></p>';
+  list.forEach((d) => {
+    h += `<div class="pw-row"><div><b style="color:${srcCol(d.src)}">${esc(d.name)}</b> <small>costo ${d.cost}</small><br><small>${P.src[d.src].name} · ${P.shape[d.shape].name} · ${P.eff[d.eff].name}${modsText(d) ? ' · ' + modsText(d) : ''}</small><br><small>${statText(d.st)}</small></div>` +
+      `<div style="margin-top:4px">${[0, 1, 2].map((s) => `<button data-pbar="${s}:${d.i}" style="padding:4px 10px;${bar[s] === d.i ? 'background:#4a6fa8' : ''}">${s + 1}</button>`).join(' ')} <button data-pdel="${d.i}" style="padding:4px 10px">✕</button></div></div>`;
+  });
+  if (list.length < pp.max) {
+    const opt = (grp, cur) => Object.keys(P[grp]).map((k) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${P[grp][k].name} (${P[grp][k].cost} pts)</option>`).join('');
+    h += '<div class="pw-row" style="margin-top:10px"><b>Forjar poder nuevo</b></div>';
+    h += `<div class="row"><span>Nombre</span><input id="pName" maxlength="14" value="${esc(draft.name)}" placeholder="(automático)" style="width:150px"></div>`;
+    h += `<div class="row"><span>Fuente</span><select id="pSrc" class="pw-sel" style="width:150px">${opt('src', draft.src)}</select></div>`;
+    h += `<div class="row"><span>Forma</span><select id="pShape" style="width:150px">${opt('shape', draft.shape)}</select></div>`;
+    h += `<div class="row"><span>Efecto</span><select id="pEff" style="width:150px">${opt('eff', draft.eff)}</select></div>`;
+    h += Object.keys(P.mod).map((k) => `<div class="pw-mod"><span>${P.mod[k].name}<br><small>${P.mod[k].desc}</small></span><span><button data-pm="${k}:-1">−</button> <b>${draft.mods[k]}</b> <button data-pm="${k}:1">+</button></span></div>`).join('');
+    h += '<div id="pprev" style="margin:8px 0"></div><div class="row"><small id="pmat"></small><button id="pMake">Forjar</button></div>';
+  }
+  return h;
+}
+function reqPrev() { clearTimeout(prevT); prevT = setTimeout(() => send({ t: 'pprev', def: { ...draft } }), 150); }
+function updatePrev() {
+  const el = document.getElementById('pprev'), mk = document.getElementById('pMake'), mat = document.getElementById('pmat');
+  if (!el || !mk) return;
+  const r = prev;
+  if (!r) { el.innerHTML = '<small>Calculando…</small>'; mk.disabled = true; mk.style.opacity = .4; return; }
+  let s = '';
+  if (r.cost !== undefined) s += `<div>Costo <b style="color:${r.cost > r.budget ? '#ff8a8a' : '#9be59b'}">${r.cost}/${r.budget}</b> pts<br><small>${statText(r.st)}</small></div>`;
+  if (r.err) s += `<div style="color:#ff9a9a"><small>${esc(r.err)}</small></div>`;
+  el.innerHTML = s;
+  const have = (me.inv || {}).nucleo || 0, F = pp.forge, okMat = have >= F.nucleo && me.silver >= F.silver;
+  mat.textContent = okMat ? '' : `Falta: ${F.nucleo} núcleo y ${F.silver} de plata`;
+  mk.disabled = !r.ok || !okMat; mk.style.opacity = mk.disabled ? .4 : 1;
+}
+function bindPowers() {
+  const g = (id) => document.getElementById(id);
+  pbody.querySelectorAll('[data-pdel]').forEach((b) => b.onclick = () => send({ t: 'pdel', i: +b.dataset.pdel }));
+  pbody.querySelectorAll('[data-pbar]').forEach((b) => b.onclick = () => { const [s, i] = b.dataset.pbar.split(':').map(Number); send({ t: 'pbar', slot: s, i }); });
+  if (!g('pSrc')) return;
+  g('pName').oninput = (e) => { draft.name = e.target.value; };
+  [['pSrc', 'src'], ['pShape', 'shape'], ['pEff', 'eff']].forEach(([id, k]) => g(id).onchange = (e) => { draft[k] = e.target.value; prev = null; updatePrev(); reqPrev(); });
+  pbody.querySelectorAll('[data-pm]').forEach((b) => b.onclick = () => {
+    const [k, d] = b.dataset.pm.split(':'); draft.mods[k] = Math.max(0, Math.min(pp.modMax, draft.mods[k] + +d));
+    prev = null; renderPanel(); reqPrev();
+  });
+  g('pMake').onclick = () => { send({ t: 'pcreate', def: { ...draft } }); draft.name = ''; };
+  updatePrev();
+}
+function powerBtns() {
+  for (let i = 0; i < 3; i++) {
+    const b = document.getElementById('bP' + i), idx = me.bar && me.bar[i], d = idx != null && me.pw ? me.pw[idx] : null;
+    b.textContent = d ? d.name : '＋'; b.style.borderColor = d ? srcCol(d.src) : '#4a5d7c';
+  }
 }
 
 function hud() {
@@ -650,6 +926,24 @@ function draw(t) {
       ctx.strokeStyle = `rgba(160,220,255,${1 - age})`; ctx.lineWidth = 4; ctx.beginPath(); ctx.ellipse(p.x, p.y, 2.8 * TW / 2 * (0.4 + age), 2.8 * TH / 2 * (0.4 + age), 0, 0, 7); ctx.stroke();
     } else if (f.t === 'chop') {
       ctx.fillStyle = `rgba(255,255,255,${1 - age})`; for (let i = 0; i < 4; i++) ctx.fillRect(p.x - 12 + i * 8, p.y - 30 - age * 12 * (i % 2 + 1), 3, 3);
+    } else if (f.t === 'pw') {
+      const col = srcCol(f.src), al = 1 - age;
+      ctx.save(); ctx.globalAlpha = Math.max(0, al); ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 4;
+      if (f.sh === 'area') {
+        const k = Math.min(1, 0.25 + age * 1.2); ctx.beginPath(); ctx.ellipse(p.x, p.y, f.r * TW / 2 * 1.414 * k, f.r * TH / 2 * 1.414 * k, 0, 0, 7); ctx.stroke();
+        ctx.globalAlpha = Math.max(0, al) * 0.2; ctx.fill();
+      } else {
+        if (f.sh === 'cono') {
+          const a0 = Math.atan2(f.dy, f.dx); ctx.beginPath(); ctx.moveTo(p.x, p.y);
+          for (let i = -4; i <= 4; i++) { const an = a0 + i * 0.14, q = iso(f.x + Math.cos(an) * f.r, f.y + Math.sin(an) * f.r); ctx.lineTo(q.x, q.y); }
+          ctx.closePath(); ctx.globalAlpha = Math.max(0, al) * 0.3; ctx.fill(); ctx.globalAlpha = Math.max(0, al); ctx.stroke();
+        }
+        for (const t of f.tg || []) {
+          const q = iso(t[0], t[1]); ctx.beginPath(); ctx.moveTo(p.x, p.y - 18); ctx.lineTo(q.x, q.y - 14); ctx.stroke();
+          ctx.beginPath(); ctx.arc(q.x, q.y - 14, 6 + age * 10, 0, 7); ctx.fill();
+        }
+      }
+      ctx.restore();
     } else if (f.t === 'death') {
       ctx.fillStyle = `rgba(255,60,60,${1 - age})`; ctx.font = '22px system-ui'; ctx.textAlign = 'center'; ctx.fillText('☠', p.x, p.y - 20 - age * 30);
     }
@@ -668,10 +962,12 @@ function draw(t) {
   const n = performance.now();
   document.getElementById('bSk').style.opacity = n < cd.sk ? .45 : 1;
   document.getElementById('bDash').style.opacity = n < cd.dash ? .45 : 1;
+  for (let i = 0; i < 3; i++) document.getElementById('bP' + i).style.opacity = n < cdP[i] ? .45 : 1;
   const zEl = document.getElementById('zone'), red = mp.x >= SAFE_X;
   zEl.textContent = red ? '⚠ ZONA DE LA MUERTE — PvP y full loot' : 'Ciudad segura'; zEl.classList.toggle('red', red);
 }
 
+function flagIcons(x, y, fl) { if (!fl) return; ctx.font = '14px system-ui'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff'; ctx.fillText(fl & 2 ? '❄️' : '', x, y); }
 function drawRes(r) {
   const p = iso(r.x, r.y);
   ctx.fillStyle = '#0004'; ctx.beginPath(); ctx.ellipse(p.x, p.y, 14, 7, 0, 0, 7); ctx.fill();
@@ -699,7 +995,7 @@ function drawMob(m, t) {
   ctx.fillStyle = '#7a7f88'; ctx.beginPath(); ctx.ellipse(p.x, p.y - 10, 14, 9, 0, 0, 7); ctx.fill();
   ctx.beginPath(); ctx.arc(p.x + 10, p.y - 16, 7, 0, 7); ctx.fill();
   ctx.fillStyle = '#ff4040'; ctx.fillRect(p.x + 11, p.y - 18, 3, 3);
-  bar(p.x, p.y - 32, 30, m.hp / m.mh, '#d64545');
+  bar(p.x, p.y - 32, 30, m.hp / m.mh, '#d64545'); flagIcons(p.x, p.y - 38, m.fl);
 }
 function drawPlayer(o, t) {
   const p = iso(o.rx, o.ry), mine = o.id === myId;
@@ -710,7 +1006,7 @@ function drawPlayer(o, t) {
   if (o.sw) { ctx.strokeStyle = '#dfe6ee'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(p.x + 10, p.y - 16); ctx.lineTo(p.x + 20, p.y - 36); ctx.stroke(); }
   ctx.font = '12px system-ui'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000';
   const label = o.n + ' [' + o.l + ']'; ctx.strokeText(label, p.x, p.y - 56); ctx.fillStyle = mine ? '#ffe27a' : '#fff'; ctx.fillText(label, p.x, p.y - 56);
-  bar(p.x, p.y - 51, 34, o.hp / o.mh, '#4cc35a');
+  bar(p.x, p.y - 51, 34, o.hp / o.mh, '#4cc35a'); flagIcons(p.x, p.y - 62, o.fl);
 }
 requestAnimationFrame(frame);
 

@@ -9,10 +9,14 @@ const consts = cut('const W = 100', 'const DATA_FILE').replace(/^/, '');
 const rest1 = cut('const RECIPES', '// ---------- cuentas');
 const util = cut('// ---------- utilidades', '// ---------- cuentas');
 const world = cut('// ---------- mundo ----------', '// ---------- red ----------');
+const powersSrc = fs.readFileSync(path.join(root, 'powers.js'), 'utf8');
 const loop = cut('// ---------- bucle principal ----------', 'server.listen');
 
 const local = `
 (function(){
+const Pw = (function(){ const module = { exports: {} };
+${powersSrc}
+return module.exports; })();
 ${consts}
 const store = { get(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }, set(k,v){ try { localStorage.setItem(k,v); } catch(e){} } };
 let accounts = {}, listings = [];
@@ -20,7 +24,8 @@ try { const d = JSON.parse(store.get('rp_offline_data') || '{}'); accounts = d.a
 function save(){ store.set('rp_offline_data', JSON.stringify({ accounts, listings, nextId })); }
 setInterval(save, 10000);
 addEventListener('pagehide', save);
-function getAcct(name){ if (!accounts[name]) accounts[name] = { name, inv: {}, silver: 20, xp: 0, lvl: 1 }; return accounts[name]; }
+function getAcct(name){ if (!accounts[name]) accounts[name] = { name, inv: {}, silver: 20, xp: 0, lvl: 1 }; const a = accounts[name];
+  if (!a.starter) { a.starter = true; a.inv.nucleo = (a.inv.nucleo || 0) + 1; } return a; }
 ${rest1}
 ${world}
 // Conexión simulada: el cliente cree que habla con un WebSocket.
@@ -36,7 +41,7 @@ function serverConnect(ws){
       p = { ws, id: newId(), acct, x: s.x, y: s.y, hp: mhpOf(acct), mp: mmpOf(acct), dx: 0, dy: 0, fx: 1, fy: 0,
         lastIn: Date.now(), cd: { atk: 0, sk: 0, dash: 0, gather: 0, pot: 0 }, dirty: true };
       players.set(ws, p);
-      send(ws, { t: 'init', id: p.id, W, H, SAFE_X, recipes: RECIPES, items: ITEMS, res: resources.map((r) => ({ id: r.id, t: r.t, x: r.x, y: r.y })) });
+      send(ws, { t: 'init', id: p.id, W, H, SAFE_X, recipes: RECIPES, items: ITEMS, pp: POWER_INIT, res: resources.map((r) => ({ id: r.id, t: r.t, x: r.x, y: r.y })) });
       send(ws, { t: 'market', list: listings });
       return;
     }
