@@ -116,6 +116,7 @@
 <div id="chatbox"><input id="chatin" maxlength="100" placeholder="Escribe y pulsa Enter..."></div>
 <div id="toast"></div>
 
+<script src="sprites.js"></script>
 <script>
 // ================== Configuración ==================
 const TW = 64, TH = 32;
@@ -444,7 +445,7 @@ function frame(t) {
   const dt = Math.min(0.1, (t - lastT) / 1000); lastT = t;
   updateInput();
   const k = 1 - Math.pow(0.0005, dt); // suavizado
-  for (const o of players.values()) { o.rx += (o.x - o.rx) * k; o.ry += (o.y - o.ry) * k; }
+  for (const o of players.values()) { const px = o.rx, py = o.ry; o.rx += (o.x - o.rx) * k; o.ry += (o.y - o.ry) * k; o.mvx = (o.rx - px) / Math.max(dt, 0.001); o.mvy = (o.ry - py) / Math.max(dt, 0.001); }
   for (const o of mobs.values()) { o.rx += (o.x - o.rx) * k; o.ry += (o.y - o.ry) * k; }
   draw(t);
   requestAnimationFrame(frame);
@@ -568,10 +569,30 @@ function drawMob(m, t) {
   ctx.fillStyle = '#ff4040'; ctx.fillRect(p.x + 11, p.y - 18, 3, 3);
   bar(p.x, p.y - 32, 30, m.hp / m.mh, '#d64545'); flagIcons(p.x, p.y - 38, m.fl);
 }
+const SPR = {};
+if (window.SPRITES) for (const k in window.SPRITES) { const im = new Image(); im.src = window.SPRITES[k]; SPR[k] = im; }
 function drawPlayer(o, t) {
   const p = iso(o.rx, o.ry), mine = o.id === myId;
   ctx.fillStyle = '#0005'; ctx.beginPath(); ctx.ellipse(p.x, p.y, 14, 7, 0, 0, 7); ctx.fill();
   if (mine) { ctx.strokeStyle = '#fff8'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(p.x, p.y, 17, 9, 0, 0, 7); ctx.stroke(); }
+  if (SPR.idle_front && SPR.idle_front.complete) {
+    // Dirección en pantalla: moverse hacia el que mira = vemos su frente.
+    const sy = (o.mvx || 0) + (o.mvy || 0), sx = ((o.mvx || 0) - (o.mvy || 0));
+    if (Math.abs(sy) > 0.0005 || Math.abs(sx) > 0.0005) o.face = sy >= 0 ? 'front' : 'back';
+    if (Math.abs(sx) > 0.0005) o.flip = sx < 0;
+    const moving = Math.hypot(o.mvx || 0, o.mvy || 0) > 0.0005;
+    const f = o.face || 'front';
+    const key = moving ? (f === 'front' ? 'walk_up_' : 'walk_down_') + (Math.floor(t / 140) % 4) : (f === 'front' ? 'idle_front' : 'idle_back');
+    const im = SPR[key]; if (im && im.complete) {
+      const H = 72, W = im.width * H / im.height;
+      ctx.save(); ctx.translate(p.x, p.y + 4); if (o.flip) ctx.scale(-1, 1);
+      ctx.drawImage(im, -W / 2, -H, W, H); ctx.restore();
+      ctx.font = '12px system-ui'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000';
+      const label = o.n + ' [' + o.l + ']'; ctx.strokeText(label, p.x, p.y - 80); ctx.fillStyle = mine ? '#ffe27a' : '#fff'; ctx.fillText(label, p.x, p.y - 80);
+      bar(p.x, p.y - 76, 34, o.hp / o.mh, '#4cc35a');
+      return;
+    }
+  }
   ctx.fillStyle = hashColor(o.n); ctx.fillRect(p.x - 8, p.y - 28, 16, 24);
   ctx.fillStyle = '#f1d3b0'; ctx.beginPath(); ctx.arc(p.x, p.y - 34, 8, 0, 7); ctx.fill();
   if (o.sw) { ctx.strokeStyle = '#dfe6ee'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(p.x + 10, p.y - 16); ctx.lineTo(p.x + 20, p.y - 36); ctx.stroke(); }

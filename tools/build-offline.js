@@ -69,6 +69,7 @@ body = body.replace('<script>', '<script>' + local + '</script>\n<script>');
 body = body.replace("localStorage.setItem('rp_name', n);", "try{localStorage.setItem('rp_name', n);}catch(e){}")
            .replace("document.getElementById('name').value = localStorage.getItem('rp_name') || '';", "try{document.getElementById('name').value = localStorage.getItem('rp_name') || '';}catch(e){}")
            .replace('Recolecta, fabrica, comercia y sobrevive en la zona de la muerte.', 'Recolecta, fabrica, comercia y sobrevive en la zona de la muerte. (Modo sin conexión: juegas tú solo y se guarda en este dispositivo.)');
+body = body.replace('<script src="sprites.js"></script>', '<script>' + fs.readFileSync(path.join(root, 'public', 'sprites.js'), 'utf8') + '</script>');
 const out = title + '\n' + style + '\n' + body;
 fs.writeFileSync(path.join(root, 'public', 'offline.html'), out);
 console.log('offline.html', out.length, 'bytes');

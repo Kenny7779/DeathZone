@@ -54,4 +54,5 @@ fs.writeFileSync(path.join(www, 'index.html'), `<!doctype html>
 </html>
 `);
 fs.copyFileSync(path.join(pub, 'icons', 'icon-512.png'), path.join(www, 'icon.png'));
+fs.copyFileSync(path.join(pub, 'sprites.js'), path.join(www, 'sprites.js'));
 console.log('www listo. Servidor:', url || '(sin configurar: solo modo sin conexión)');
