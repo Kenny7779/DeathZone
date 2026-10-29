@@ -10,7 +10,7 @@ function hashPass(pass, salt) { return crypto.scryptSync(pass, salt, 32).toStrin
 
 const PORT = process.env.PORT || 3000;
 const W = 100, H = 100;      // tamaño del mundo en tiles
-const SAFE_X = 30;           // x < SAFE_X = ciudad segura; x >= SAFE_X = zona de la muerte (PvP + full loot)
+const SAFE_X = 30;           // x < SAFE_X = ciudad segura; x >= SAFE_X = zona de la muerte (monstruos; si mueres pierdes el inventario en una bolsa que solo recoges tú)
 const TICK = 50;             // 20 Hz
 const SPEED = 4.5;           // tiles/seg
 // La ciudad (lobby): zona segura donde apareces. Los edificios abren su menú al acercarte.
@@ -19,9 +19,12 @@ const CITY = { x0: 5, x1: 27, y0: 34, y1: 66, buildings: [
   { id: 'mercado',  name: 'Mercado',  x: 10, y: 56, w: 4, d: 3, h: 40, roof: '#2f8f8f', tab: 'market' },
   { id: 'torre',    name: 'Torre de poderes', x: 18, y: 45, w: 3, d: 3, h: 84, roof: '#7a4bd1', tab: 'powers' },
   { id: 'salon',    name: 'Salón de habilidades', x: 18, y: 56, w: 3, d: 3, h: 52, roof: '#3f7fe0', tab: 'tree' },
-  { id: 'puerta',   name: 'Puerta de la zona de la muerte', x: 27.6, y: 46, w: 1.4, d: 8, h: 70, roof: '#7a1f1f', tab: null },
+  { id: 'puerta',   name: 'Puerta de la zona de la muerte', x: 27.6, y: 46, w: 1.4, d: 8, h: 70, roof: '#7a1f1f', tab: null, solid: false },
 ] };
 const inCity = (x, y) => x >= CITY.x0 && x <= CITY.x1 && y >= CITY.y0 && y <= CITY.y1;
+// Colisiones: los edificios son sólidos (la puerta se puede cruzar). El jugador mide 0,4 tiles de radio.
+const R_PLAYER = 0.4;
+const blockedAt = (x, y) => CITY.buildings.some((b) => b.solid !== false && x > b.x - R_PLAYER && x < b.x + b.w + R_PLAYER && y > b.y - R_PLAYER && y < b.y + b.d + R_PLAYER);
 const DATA_FILE = path.join(__dirname, 'data.json');
 
 const RECIPES = {
@@ -114,13 +117,13 @@ function killPlayer(p, killer) {
     const loot = { ...a.inv };
     const silver = Math.floor(a.silver / 2);
     if (Object.keys(loot).length || silver) {
-      bags.push({ id: newId(), x: p.x, y: p.y, items: loot, silver, expires: Date.now() + 120000 });
+      bags.push({ id: newId(), x: p.x, y: p.y, items: loot, silver, owner: a.name, expires: Date.now() + 120000 });
     }
     a.inv = {}; a.silver -= silver;
   }
   p.deaths = (p.deaths || 0) + 1;
   events.push({ t: 'death', x: p.x, y: p.y });
-  send(p.ws, { t: 'msg', m: 'Has muerto. Has perdido tu inventario en la zona de la muerte.' });
+  send(p.ws, { t: 'msg', m: 'Has muerto. Tu inventario quedó en una bolsa: recógela antes de 2 minutos.' });
   if (killer && killer.acct) addXp(killer, 20);
   respawn(p);
 }
@@ -143,11 +146,7 @@ function hurtMob(m, amt, killer) {
 function enemiesNear(p, r) {
   const out = [];
   for (const m of mobs) if (m.alive && dist(p, m) <= r) out.push({ kind: 'mob', e: m, d: dist(p, m) });
-  if (inRed(p.x)) {
-    for (const q of players.values()) {
-      if (q !== p && inRed(q.x) && dist(p, q) <= r) out.push({ kind: 'pl', e: q, d: dist(p, q) });
-    }
-  }
+  // Sin PvP: solo los monstruos son enemigos.
   return out.sort((a, b) => a.d - b.d);
 }
 function hit(p, target, dmg) {
@@ -190,7 +189,8 @@ function castPower(p, ws, slot, now) {
     const push = Math.min(3.5, (S.push || 0) + (E.push || 0)) * (isPl ? 0.6 : 1);
     if (push) {
       const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy) || 1;
-      e.x = clamp(e.x + dx / d * push, 0.5, W - 0.5); e.y = clamp(e.y + dy / d * push, 0.5, H - 0.5);
+      const px = clamp(e.x + dx / d * push, 0.5, W - 0.5), py = clamp(e.y + dy / d * push, 0.5, H - 0.5);
+      if (!blockedAt(px, py)) { e.x = px; e.y = py; }
     }
   }
   let heal = (E.heal ? st.heal * mhp : 0) + (E.leech ? E.leech * dealt : 0);
@@ -230,14 +230,18 @@ function handle(ws, p, msg) {
     case 'dash': {
       if (now < p.cd.dash || p.mp < 15) return;
       p.cd.dash = now + 4000; p.mp -= 15; p.dirty = true;
-      p.x = clamp(p.x + p.fx * 4, 0.5, W - 0.5); p.y = clamp(p.y + p.fy * 4, 0.5, H - 0.5);
+      for (let i = 0; i < 8; i++) {                       // 8 pasos de medio tile: se detiene ante un edificio
+        const nx = clamp(p.x + p.fx * 0.5, 0.5, W - 0.5), ny = clamp(p.y + p.fy * 0.5, 0.5, H - 0.5);
+        if (blockedAt(nx, ny)) break;
+        p.x = nx; p.y = ny;
+      }
       break;
     }
     case 'gather': {
       if (now < p.cd.gather) return;
       p.cd.gather = now + 600;
       // 1) bolsa de loot cercana
-      const bi = bags.findIndex((b) => dist(p, b) < 1.8);
+      const bi = bags.findIndex((b) => dist(p, b) < 1.8 && (!b.owner || b.owner === p.acct.name));
       if (bi >= 0) {
         const b = bags.splice(bi, 1)[0];
         for (const k in b.items) addItem(p.acct, k, b.items[k]);
@@ -448,8 +452,10 @@ setInterval(() => {
   for (const p of players.values()) {
     if (now - p.lastIn > 1000) { p.dx = 0; p.dy = 0; }
     const sp = SPEED * (now < (p.slowUntil || 0) ? (p.slowMul || 0.6) : 1);
-    p.x = clamp(p.x + p.dx * sp * dt, 0.5, W - 0.5);
-    p.y = clamp(p.y + p.dy * sp * dt, 0.5, H - 0.5);
+    const nx = clamp(p.x + p.dx * sp * dt, 0.5, W - 0.5);
+    if (!blockedAt(nx, p.y)) p.x = nx;
+    const ny = clamp(p.y + p.dy * sp * dt, 0.5, H - 0.5);
+    if (!blockedAt(p.x, ny)) p.y = ny;
     const mh = mhpOf(p.acct), mm = mmpOf(p.acct);
     if (p.hp < mh) p.hp = Math.min(mh, p.hp + 1 * dt);
     if (p.mp < mm) p.mp = Math.min(mm, p.mp + 3 * dt);

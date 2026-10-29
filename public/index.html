@@ -315,7 +315,7 @@ function renderPanel() {
     const ks = Object.keys(inv);
     h += ks.length ? ks.map((k) => `<div class="row"><span>${NAMES[k] || k}</span><b>x${inv[k]}</b></div>`).join('') : '<p><small>Inventario vacío. Recoge madera, piedra y mineral (⛏️).</small></p>';
     h += '<p><b>Oficios</b></p>' + ['wood', 'stone', 'ore'].map((k) => { const t = (me.tr || {})[k] || { lvl: 1, xp: 0 }; return `<div class="row"><span>${TRADE[k]} <small>(${NAMES[k]})</small></span><span>Nv ${t.lvl}${t.lvl >= 10 ? ' (máx.)' : ` <small>${t.xp}/${t.lvl * 5}</small>`}</span></div>`; }).join('') + '<p><small>Cada nivel de oficio da +10% de probabilidad de recoger material extra (máx. 50%).</small></p>';
-    h += '<p><small>La espada da +12 de daño y la armadura reduce el daño un 30%. En la zona de la muerte, si mueres pierdes TODO.</small></p>';
+    h += '<p><small>La espada da +12 de daño y la armadura reduce el daño un 30%. En la zona de la muerte, si mueres pierdes tu inventario en una bolsa que solo tú puedes recoger (dura 2 minutos).</small></p>';
   } else if (tab === 'craft') {
     for (const k in recipes) {
       const r = recipes[k], ok = Object.keys(r).every((m) => (inv[m] || 0) >= r[m]);
@@ -653,7 +653,7 @@ function draw(t) {
   const eb = document.getElementById('bEnter');
   if (nb) { enterTab = nb.tab; eb.textContent = 'Entrar: ' + nb.name; eb.style.display = 'block'; } else { enterTab = null; eb.style.display = 'none'; }
   const zEl = document.getElementById('zone'), red = mp.x >= SAFE_X;
-  zEl.textContent = red ? '⚠ ZONA DE LA MUERTE — PvP y full loot' : 'Ciudad segura'; zEl.classList.toggle('red', red);
+  zEl.textContent = red ? '⚠ ZONA DE LA MUERTE — monstruos' : 'Ciudad segura'; zEl.classList.toggle('red', red);
 }
 
 function flagIcons(x, y, fl) { if (!fl) return; ctx.font = '14px system-ui'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff'; ctx.fillText(fl & 2 ? '❄️' : '', x, y); }
