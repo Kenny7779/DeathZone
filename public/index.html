@@ -590,7 +590,7 @@ function draw(t) {
   // entidades ordenadas por profundidad
   const ents = [];
   for (const b of (city ? city.buildings : [])) ents.push({ z: b.x + b.y + (b.w + b.d) / 2, k: 'bld', o: b });
-  for (const r of resList) if (!deadRes.has(r.id)) ents.push({ z: r.x + r.y, k: 'res', o: r });
+  for (const r of resList) if (!deadRes.has(r.id) && Math.abs(r.x - cx) <= R && Math.abs(r.y - cy) <= R) ents.push({ z: r.x + r.y, k: 'res', o: r });
   for (const b of bags) ents.push({ z: b.x + b.y, k: 'bag', o: b });
   for (const m of mobs.values()) ents.push({ z: m.rx + m.ry, k: 'mob', o: m });
   for (const p of players.values()) ents.push({ z: p.rx + p.ry, k: 'pl', o: p });

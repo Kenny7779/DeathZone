@@ -9,17 +9,17 @@ function newSalt() { return crypto.randomBytes(8).toString('hex'); }
 function hashPass(pass, salt) { return crypto.scryptSync(pass, salt, 32).toString('hex'); }
 
 const PORT = process.env.PORT || 3000;
-const W = 100, H = 100;      // tamaño del mundo en tiles
+const W = 200, H = 200;      // tamaño del mundo en tiles
 const SAFE_X = 30;           // x < SAFE_X = ciudad segura; x >= SAFE_X = zona de la muerte (monstruos; si mueres pierdes el inventario en una bolsa que solo recoges tú)
 const TICK = 50;             // 20 Hz
 const SPEED = 4.5;           // tiles/seg
 // La ciudad (lobby): zona segura donde apareces. Los edificios abren su menú al acercarte.
-const CITY = { x0: 5, x1: 27, y0: 34, y1: 66, buildings: [
-  { id: 'herreria', name: 'Herrería', x: 10, y: 40, w: 4, d: 3, h: 46, roof: '#b5651d', tab: 'craft' },
-  { id: 'mercado',  name: 'Mercado',  x: 10, y: 56, w: 4, d: 3, h: 40, roof: '#2f8f8f', tab: 'market' },
-  { id: 'torre',    name: 'Torre de poderes', x: 18, y: 45, w: 3, d: 3, h: 84, roof: '#7a4bd1', tab: 'powers' },
-  { id: 'salon',    name: 'Salón de habilidades', x: 18, y: 56, w: 3, d: 3, h: 52, roof: '#3f7fe0', tab: 'tree' },
-  { id: 'puerta',   name: 'Puerta de la zona de la muerte', x: 27.6, y: 46, w: 1.4, d: 8, h: 70, roof: '#7a1f1f', tab: null, solid: false },
+const CITY = { x0: 5, x1: 27, y0: 84, y1: 116, buildings: [
+  { id: 'herreria', name: 'Herrería', x: 10, y: 90, w: 4, d: 3, h: 46, roof: '#b5651d', tab: 'craft' },
+  { id: 'mercado',  name: 'Mercado',  x: 10, y: 106, w: 4, d: 3, h: 40, roof: '#2f8f8f', tab: 'market' },
+  { id: 'torre',    name: 'Torre de poderes', x: 18, y: 95, w: 3, d: 3, h: 84, roof: '#7a4bd1', tab: 'powers' },
+  { id: 'salon',    name: 'Salón de habilidades', x: 18, y: 106, w: 3, d: 3, h: 52, roof: '#3f7fe0', tab: 'tree' },
+  { id: 'puerta',   name: 'Puerta de la zona de la muerte', x: 27.6, y: 96, w: 1.4, d: 8, h: 70, roof: '#7a1f1f', tab: null, solid: false },
 ] };
 const inCity = (x, y) => x >= CITY.x0 && x <= CITY.x1 && y >= CITY.y0 && y <= CITY.y1;
 // Colisiones: los edificios son sólidos (la puerta se puede cruzar). El jugador mide 0,4 tiles de radio.
@@ -77,12 +77,12 @@ function spawnRes(type, n, minX, maxX) {
     });
   }
 }
-spawnRes('tree', 110, 3, W - 2);
-spawnRes('rock', 70, 3, W - 2);
-spawnRes('ore', 60, SAFE_X + 3, W - 2);
+spawnRes('tree', 440, 3, W - 2);
+spawnRes('rock', 280, 3, W - 2);
+spawnRes('ore', 240, SAFE_X + 3, W - 2);
 
 const mobs = [];
-for (let i = 0; i < 28; i++) {
+for (let i = 0; i < 110; i++) {
   const x = SAFE_X + 8 + rnd() * (W - SAFE_X - 12), y = 4 + rnd() * (H - 8);
   mobs.push({ id: newId(), x, y, hx: x, hy: y, hp: 60, mhp: 60, alive: true, respawn: 0, cd: 0 });
 }
@@ -90,7 +90,7 @@ const bags = []; // bolsas de loot {id,x,y,items,silver,expires}
 const players = new Map(); // ws -> player
 let events = [];
 
-const spawnPoint = () => ({ x: 8 + rnd() * 4, y: 48 + rnd() * 4 });
+const spawnPoint = () => ({ x: 8 + rnd() * 4, y: H / 2 - 2 + rnd() * 4 });
 
 // ---------- jugador ----------
 const mhpOf = (a) => 100 + (a.lvl - 1) * 10;
@@ -483,12 +483,16 @@ setInterval(() => {
       t: 's',
       p: [...players.values()].map((p) => ({ id: p.id, n: p.acct.name, x: +p.x.toFixed(2), y: +p.y.toFixed(2), hp: Math.round(p.hp), mh: mhpOf(p.acct), l: p.acct.lvl, sw: p.acct.inv.espada > 0 ? 1 : 0, fl: flagsOf(p, now), lk: p.acct.char ? [p.acct.char.power, p.acct.char.aura, p.acct.char.tone, p.acct.char.cloth] : null })),
       m: mobs.filter((m) => m.alive).map((m) => ({ id: m.id, x: +m.x.toFixed(2), y: +m.y.toFixed(2), hp: m.hp, mh: m.mhp, fl: flagsOf(m, now) })),
-      d: resources.filter((r) => !r.alive).map((r) => r.id),
+      d: resources.filter((r) => !r.alive).map((r) => ({ id: r.id, x: r.x, y: r.y })),
       b: bags.map((b) => ({ id: b.id, x: b.x, y: b.y })),
       e: events,
     };
     events = [];
-    broadcast(snap);
+    const AOI = 45, near = (e, p) => Math.abs(e.x - p.x) <= AOI && Math.abs(e.y - p.y) <= AOI;   // área de interés de cada jugador
+    for (const [ws, p] of players) {
+      send(ws, { t: 's', p: snap.p.filter((q) => near(q, p)), m: snap.m.filter((q) => near(q, p)), d: snap.d.filter((q) => near(q, p)).map((q) => q.id),
+        b: snap.b.filter((q) => near(q, p)), e: snap.e.filter((q) => near(q, p)) });
+    }
     for (const [ws, p] of players) {
       if (p.dirty) {
         p.dirty = false;
