@@ -40,7 +40,7 @@ fs.writeFileSync(path.join(www, 'index.html'), `<!doctype html>
 <body>
   <img src="icon.png" alt="">
   <h1>DEATHZONE</h1>
-  <p>Recolecta, fabrica y comercia en la ciudad segura. Cruza a la zona de la muerte y arriesga todo.</p>
+  <p>Recolecta, fabrica y comercia en la ciudad segura. Cruza la puerta hacia el mundo de enemigos y explora bosques, tundras, desiertos y ruinas.</p>
   <a id="online" class="btn" href="online.html">Jugar online</a>
   <a class="btn alt" href="solo.html">Jugar solo (sin conexión)</a>
   <small id="note"></small>

@@ -5,7 +5,7 @@ const srv = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 let html = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
 
 const cut = (a, b) => { const i = srv.indexOf(a), j = srv.indexOf(b); if (i < 0 || j < 0) throw new Error('marca no encontrada: ' + a + ' / ' + b); return srv.slice(i, j); };
-const consts = cut('const W = ', 'const DATA_FILE').replace(/^/, '');
+const consts = cut('const TICK = ', 'const DATA_FILE').replace(/^/, '');
 const rest1 = cut('const RECIPES', '// ---------- cuentas');
 const util = cut('// ---------- utilidades', '// ---------- cuentas');
 const world = cut('// ---------- mundo ----------', '// ---------- red ----------');
