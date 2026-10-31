@@ -20,6 +20,7 @@ const MAPDEF = {
       { id: 'mercado',  name: 'Mercado',  x: 8, y: 26, w: 4, d: 3, h: 40, roof: '#2f8f8f', tab: 'market' },
       { id: 'torre',    name: 'Torre de poderes', x: 18, y: 12, w: 3, d: 3, h: 84, roof: '#7a4bd1', tab: 'powers' },
       { id: 'salon',    name: 'Salón de habilidades', x: 18, y: 26, w: 3, d: 3, h: 52, roof: '#3f7fe0', tab: 'tree' },
+      { id: 'tablon',   name: 'Tablón de misiones', x: 28, y: 12, w: 3, d: 2, h: 44, roof: '#c9a227', tab: 'quests' },
       { id: 'puerta',   name: 'Puerta de la zona de la muerte', x: 41.6, y: 16, w: 1.4, d: 8, h: 70, roof: '#7a1f1f', tab: null, solid: false },
     ],
     links: [{ side: 'e', min: 16, max: 24, to: 'muerte' }] },
@@ -151,6 +152,19 @@ function hurtPlayer(p, amt, killer) {
   events.push({ w: p.map, t: 'dmg', x: p.x, y: p.y, v: amt });
   if (p.hp <= 0) killPlayer(p, killer);
 }
+// ---------- misiones: 3 activas por cuenta; al reclamar una sale otra nueva ----------
+const QDEF = { kill: { lo: 6, hi: 16, silver: 12, xp: 6 }, wood: { lo: 10, hi: 24, silver: 4, xp: 2 }, stone: { lo: 8, hi: 20, silver: 5, xp: 2 }, ore: { lo: 6, hi: 14, silver: 9, xp: 4 }, boss: { lo: 1, hi: 1, silver: 300, xp: 120 } };
+function genQuest(avoid) {
+  const keys = Object.keys(QDEF).filter((k) => !avoid.includes(k));
+  const k = keys[Math.floor(rnd() * keys.length)], D = QDEF[k], n = D.lo + Math.floor(rnd() * (D.hi - D.lo + 1));
+  return { k, n, got: 0, rew: { silver: n * D.silver, xp: n * D.xp, nucleo: k === 'boss' ? 3 : k === 'ore' ? 1 : 0 } };
+}
+function questsOf(a) {
+  if (!Array.isArray(a.quests)) a.quests = [];
+  while (a.quests.length < 3) a.quests.push(genQuest(a.quests.map((q) => q.k)));
+  return a.quests;
+}
+function qprog(p, k, n) { for (const q of questsOf(p.acct)) if (q.k === k && q.got < q.n) { q.got = Math.min(q.n, q.got + n); p.dirty = true; } }
 function hurtMob(m, amt, killer, crit) {
   m.hp -= amt;
   events.push({ w: m.w, t: 'dmg', x: m.x, y: m.y, v: amt, c: crit ? 1 : 0 });
@@ -163,6 +177,7 @@ function hurtMob(m, amt, killer, crit) {
     killer.acct.silver += s; addXp(killer, Math.round(8 * m.rew * bonus)); killer.dirty = true;
     if (rnd() < m.core) addItem(killer.acct, 'nucleo', m.k === 'jef' ? 3 : 1); // los núcleos solo salen de los monstruos fuera de la ciudad
     if (rnd() < (m.k === 'jef' ? 1 : 0.1)) { addItem(killer.acct, 'pocion', 1); send(killer.ws, { t: 'msg', m: 'Soltó una poción' }); }
+    qprog(killer, 'kill', 1); if (m.k === 'jef') qprog(killer, 'boss', 1);
     if (m.k === 'jef') broadcast({ t: 'msg', m: killer.acct.name + ' derrotó al jefe de ' + worlds[m.w].name + '!' });
     else if (killer.combo >= 3 && killer.combo % 3 === 0) send(killer.ws, { t: 'msg', m: 'Racha x' + killer.combo + ' (+' + Math.round((bonus - 1) * 100) + '% botín)' });
   }
@@ -286,7 +301,7 @@ function handle(ws, p, msg) {
         const tr = a.trades[item] || (a.trades[item] = { lvl: 1, xp: 0 });
         let qty = 1 + Math.floor(rnd() * 2);
         if (rnd() < Math.min(0.5, 0.1 * (tr.lvl - 1))) qty++;       // oficio: +10% de rendimiento extra por nivel (máx. 50%)
-        addItem(a, item, qty);
+        addItem(a, item, qty); qprog(p, item === 'wood' ? 'wood' : item === 'stone' ? 'stone' : 'ore', qty);
         tr.xp++;
         if (tr.lvl < 10 && tr.xp >= tr.lvl * 5) { tr.xp -= tr.lvl * 5; tr.lvl++; send(ws, { t: 'msg', m: 'Oficio ' + item + ' sube a nivel ' + tr.lvl }); }
         addXp(p, 2); p.dirty = true;
@@ -338,6 +353,14 @@ function handle(ws, p, msg) {
       const i = listings.findIndex((l) => l.id === msg.id && l.seller === p.acct.name); if (i < 0) return;
       const l = listings.splice(i, 1)[0]; addItem(p.acct, l.item, l.qty);
       p.dirty = true; broadcast({ t: 'market', list: listings });
+      break;
+    }
+    case 'qclaim': {
+      const qs = questsOf(p.acct), i = Math.floor(+msg.i), q = qs[i];
+      if (!q || q.got < q.n) return;
+      p.acct.silver += q.rew.silver; addXp(p, q.rew.xp); if (q.rew.nucleo) addItem(p.acct, 'nucleo', q.rew.nucleo);
+      qs[i] = genQuest(qs.map((x) => x.k));
+      send(ws, { t: 'msg', m: 'Misión cumplida: +' + q.rew.silver + ' plata' }); p.dirty = true;
       break;
     }
     case 'pprev': {
@@ -547,7 +570,7 @@ setInterval(() => {
         p.dirty = false;
         send(ws, { t: 'me', inv: p.acct.inv, silver: p.acct.silver, xp: p.acct.xp, lvl: p.acct.lvl,
           hp: Math.round(p.hp), mh: mhpOf(p.acct), mp: Math.round(p.mp), mm: mmpOf(p.acct), nx: p.acct.lvl * 40,
-          tr: p.acct.trades || {}, pw: powersView(p.acct), bar: p.acct.bar || [null, null, null], pb: Pw.powerBudget(p.acct.lvl), cb: p.combo || 0 });
+          tr: p.acct.trades || {}, pw: powersView(p.acct), bar: p.acct.bar || [null, null, null], pb: Pw.powerBudget(p.acct.lvl), cb: p.combo || 0, qs: questsOf(p.acct) });
       }
     }
   }

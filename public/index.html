@@ -137,6 +137,7 @@
     <button data-tab="market">Mercado</button>
     <button data-tab="powers">Poderes</button>
     <button data-tab="tree">Árbol</button>
+    <button data-tab="quests">Misiones</button>
     <button id="pclose" style="margin-left:auto">✕</button>
   </div>
   <div id="pbody"></div>
@@ -334,6 +335,10 @@ function renderPanel() {
     h += powersHTML();
   } else if (tab === 'tree') {
     h += treeHTML();
+  } else if (tab === 'quests') {
+    const QN = { kill: 'Derrota monstruos', wood: 'Recolecta madera', stone: 'Recolecta piedra', ore: 'Recolecta mineral', boss: 'Derrota a un jefe' };
+    h += '<p><small>Completa misiones para ganar plata, experiencia y núcleos. Al reclamar una sale otra nueva.</small></p>';
+    h += (me.qs || []).map((q, i) => { const ok = q.got >= q.n; return `<div class="row"><div><b>${QN[q.k]} (${q.got}/${q.n})</b><br><small>🪙 ${q.rew.silver} · ✨ ${q.rew.xp} xp${q.rew.nucleo ? ' · ⚛ ' + q.rew.nucleo : ''}</small></div><button data-qclaim="${i}" ${ok ? '' : 'disabled style="opacity:.4"'}>Reclamar</button></div>`; }).join('');
   } else {
     if (!safe) h += '<p style="color:#ff9a9a">El mercado solo está disponible en la ciudad.</p>';
     h += '<b>Vender</b><div class="row"><select id="sItem">' + Object.keys(inv).map((k) => `<option value="${k}">${NAMES[k] || k} (${inv[k]})</option>`).join('') + '</select><input id="sQty" type="number" min="1" value="1"><input id="sPrice" type="number" min="1" placeholder="Precio"><button id="sGo">Listar</button></div>';
@@ -342,6 +347,7 @@ function renderPanel() {
       (l.seller === window.myName ? `<button data-cancel="${l.id}">Retirar</button>` : `<button data-buy="${l.id}">Comprar</button>`) + '</div>').join('') : '<p><small>No hay anuncios.</small></p>';
   }
   pbody.innerHTML = h; pbody.scrollTop = keep;
+  pbody.querySelectorAll('[data-qclaim]').forEach((b) => b.onclick = () => send({ t: 'qclaim', i: +b.dataset.qclaim }));
   pbody.querySelectorAll('[data-craft]').forEach((b) => b.onclick = () => send({ t: 'craft', item: b.dataset.craft }));
   pbody.querySelectorAll('[data-buy]').forEach((b) => b.onclick = () => send({ t: 'buy', id: +b.dataset.buy }));
   pbody.querySelectorAll('[data-cancel]').forEach((b) => b.onclick = () => send({ t: 'cancel', id: +b.dataset.cancel }));
