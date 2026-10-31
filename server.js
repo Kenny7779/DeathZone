@@ -54,8 +54,9 @@ const RECIPES = {
   espada:   { wood: 4, ore: 3 },     // +12 de daño
   armadura: { stone: 6, ore: 2 },    // -30% daño recibido
   pocion:   { wood: 3, stone: 1 },   // cura 60 HP
+  montura:  { wood: 10, ore: 6, nucleo: 2 },   // +50% de velocidad; al recibir daño te tira
 };
-const ITEMS = ['wood', 'stone', 'ore', 'nucleo', 'espada', 'armadura', 'pocion'];
+const ITEMS = ['wood', 'stone', 'ore', 'nucleo', 'espada', 'armadura', 'pocion', 'montura'];
 
 // ---------- utilidades ----------
 let seed = 1337;
@@ -142,6 +143,15 @@ function respawn(p) {
   const s = spawnIn(); enterMap(p, 'lobby', s[0], s[1]);
   p.hp = mhpOf(p.acct); p.mp = mmpOf(p.acct); p.dirty = true;
 }
+// ---------- grupos (hasta 4): comparten experiencia y progreso de misiones de muerte de monstruos ----------
+let nextParty = 1;
+const partyMates = (p) => (p.party ? p.party.members.filter((m) => m !== p && players.get(m.ws) === m) : []);
+function leaveParty(p) {
+  const g = p.party; if (!g) return;
+  g.members = g.members.filter((m) => m !== p); p.party = null; p.dirty = true;
+  for (const m of g.members) { send(m.ws, { t: 'msg', m: p.acct.name + ' dejó el grupo.' }); m.dirty = true; }
+  if (g.members.length < 2) for (const m of g.members) { m.party = null; m.dirty = true; send(m.ws, { t: 'msg', m: 'El grupo se disolvió.' }); }
+}
 function killPlayer(p, killer) {
   const a = p.acct;
   if (!worlds[p.map].safe) {
@@ -161,6 +171,7 @@ function killPlayer(p, killer) {
 function hurtPlayer(p, amt, killer) {
   if (p.acct.inv.armadura > 0) amt = Math.round(amt * (0.7 - 0.03 * upOf(p.acct, 'armadura')));
   p.hp -= amt; p.dirty = true;
+  if (p.mounted) { p.mounted = false; send(p.ws, { t: 'msg', m: '¡Te tiran de la montura!' }); }
   events.push({ w: p.map, t: 'dmg', x: p.x, y: p.y, v: amt });
   if (p.hp <= 0) killPlayer(p, killer);
 }
@@ -189,6 +200,7 @@ function hurtMob(m, amt, killer, crit) {
     killer.acct.silver += s; addXp(killer, Math.round(8 * m.rew * bonus)); killer.dirty = true;
     if (rnd() < m.core) addItem(killer.acct, 'nucleo', m.k === 'jef' ? 3 : 1); // los núcleos solo salen de los monstruos fuera de la ciudad
     if (rnd() < (m.k === 'jef' ? 1 : 0.1)) { addItem(killer.acct, 'pocion', 1); send(killer.ws, { t: 'msg', m: 'Soltó una poción' }); }
+    for (const q of partyMates(killer)) if (q.map === killer.map && dist(q, killer) < 40) { addXp(q, Math.round(4 * m.rew * bonus)); qprog(q, 'kill', 1); if (m.k === 'jef') qprog(q, 'boss', 1); }
     qprog(killer, 'kill', 1); if (m.k === 'jef') qprog(killer, 'boss', 1);
     if (m.k === 'jef') broadcast({ t: 'msg', m: killer.acct.name + ' derrotó al jefe de ' + worlds[m.w].name + '!' });
     else if (killer.combo >= 3 && killer.combo % 3 === 0) send(killer.ws, { t: 'msg', m: 'Racha x' + killer.combo + ' (+' + Math.round((bonus - 1) * 100) + '% botín)' });
@@ -263,7 +275,14 @@ function handle(ws, p, msg) {
       if (l > 0.1) { p.fx = dx / (l || 1); p.fy = dy / (l || 1); }
       break;
     }
+    case 'mount': {
+      if (p.mounted) { p.mounted = false; send(ws, { t: 'msg', m: 'Desmontas.' }); }
+      else if (!(p.acct.inv.montura > 0)) send(ws, { t: 'msg', m: 'Necesitas una montura: fabrícala en la Herrería.' });
+      else { p.mounted = true; send(ws, { t: 'msg', m: 'Montas: +50% de velocidad (no puedes atacar).' }); }
+      p.dirty = true; break;
+    }
     case 'atk': {
+      if (p.mounted) return send(ws, { t: 'msg', m: 'Desmonta para combatir.' });
       if (now < p.cd.atk) return;
       p.cd.atk = now + 500;
       const t = enemiesNear(p, 2)[0];
@@ -272,6 +291,7 @@ function handle(ws, p, msg) {
       break;
     }
     case 'sk': { // Tajo: área
+      if (p.mounted) return send(ws, { t: 'msg', m: 'Desmonta para combatir.' });
       if (now < p.cd.sk || p.mp < 20) return;
       p.cd.sk = now + 3000; p.mp -= 20; p.dirty = true;
       events.push({ w: p.map, t: 'slash', x: p.x, y: p.y });
@@ -324,7 +344,7 @@ function handle(ws, p, msg) {
     case 'craft': {
       const r = RECIPES[msg.item]; if (!r) return;
       for (const k in r) if ((p.acct.inv[k] || 0) < r[k]) return send(ws, { t: 'msg', m: 'Te faltan materiales.' });
-      if ((msg.item === 'espada' || msg.item === 'armadura') && p.acct.inv[msg.item] > 0)
+      if ((msg.item === 'espada' || msg.item === 'armadura' || msg.item === 'montura') && p.acct.inv[msg.item] > 0)
         return send(ws, { t: 'msg', m: 'Ya tienes ese equipo.' });
       for (const k in r) addItem(p.acct, k, -r[k]);
       addItem(p.acct, msg.item, 1); addXp(p, 3); p.dirty = true;
@@ -381,6 +401,28 @@ function handle(ws, p, msg) {
       p.dirty = true;
       break;
     }
+    case 'party': {
+      if (msg.a === 'inv') {
+        const nm = String(msg.name || '').toLowerCase();
+        let tg = null; for (const q of players.values()) if (q !== p && q.acct.name.toLowerCase() === nm) tg = q;
+        if (!tg) return send(ws, { t: 'msg', m: 'No hay ningún jugador conectado con ese nombre.' });
+        if (tg.party) return send(ws, { t: 'msg', m: tg.acct.name + ' ya está en un grupo.' });
+        if (p.party && p.party.members.length >= 4) return send(ws, { t: 'msg', m: 'Tu grupo está lleno (máx. 4).' });
+        tg.pinv = { from: p, until: now + 30000 };
+        send(tg.ws, { t: 'pinv', from: p.acct.name });
+        send(ws, { t: 'msg', m: 'Invitaste a ' + tg.acct.name });
+      } else if (msg.a === 'acc') {
+        const iv = p.pinv; p.pinv = null;
+        if (!iv || now > iv.until || players.get(iv.from.ws) !== iv.from) return send(ws, { t: 'msg', m: 'La invitación expiró.' });
+        if (p.party) return;
+        if (!iv.from.party) iv.from.party = { id: nextParty++, members: [iv.from] };
+        const g = iv.from.party;
+        if (g.members.length >= 4) return send(ws, { t: 'msg', m: 'El grupo está lleno.' });
+        g.members.push(p); p.party = g;
+        for (const m of g.members) { m.dirty = true; if (m !== p) send(m.ws, { t: 'msg', m: p.acct.name + ' se unió al grupo.' }); }
+      } else if (msg.a === 'leave') leaveParty(p);
+      break;
+    }
     case 'qclaim': {
       const qs = questsOf(p.acct), i = Math.floor(+msg.i), q = qs[i];
       if (!q || q.got < q.n) return;
@@ -432,6 +474,7 @@ function handle(ws, p, msg) {
     }
     case 'pcast': {
       const slot = Math.floor(+msg.slot);
+      if (p.mounted) return send(ws, { t: 'msg', m: 'Desmonta para combatir.' });
       if (slot >= 0 && slot < 3) castPower(p, ws, slot, now);
       break;
     }
@@ -544,7 +587,7 @@ setInterval(() => {
 
   for (const p of players.values()) {
     if (now - p.lastIn > 1000) { p.dx = 0; p.dy = 0; }
-    const wd = worlds[p.map], sp = SPEED * raceOf(p.acct).spd * (now < (p.slowUntil || 0) ? (p.slowMul || 0.6) : 1);
+    const wd = worlds[p.map], sp = SPEED * raceOf(p.acct).spd * (p.mounted && p.acct.inv.montura > 0 ? 1.5 : 1) * (now < (p.slowUntil || 0) ? (p.slowMul || 0.6) : 1);
     const nx = clamp(p.x + p.dx * sp * dt, 0.5, wd.W - 0.5);
     if (!blockedAt(wd, nx, p.y)) p.x = nx;
     const ny = clamp(p.y + p.dy * sp * dt, 0.5, wd.H - 0.5);
@@ -600,7 +643,7 @@ setInterval(() => {
     for (const e of events) (evs[e.w] = evs[e.w] || []).push(e);
     events = [];
     const AOI = 45, near = (e, p) => Math.abs(e.x - p.x) <= AOI && Math.abs(e.y - p.y) <= AOI;   // área de interés de cada jugador
-    const pv = (p) => ({ id: p.id, n: p.acct.name, x: +p.x.toFixed(2), y: +p.y.toFixed(2), hp: Math.round(p.hp), mh: mhpOf(p.acct), l: p.acct.lvl, sw: p.acct.inv.espada > 0 ? 1 : 0, fl: flagsOf(p, now), lk: p.acct.char ? [p.acct.char.power, p.acct.char.aura, p.acct.char.tone, p.acct.char.cloth, p.acct.char.race || 'humano'] : null });
+    const pv = (p) => ({ id: p.id, n: p.acct.name, x: +p.x.toFixed(2), y: +p.y.toFixed(2), hp: Math.round(p.hp), mh: mhpOf(p.acct), l: p.acct.lvl, sw: p.acct.inv.espada > 0 ? 1 : 0, fl: flagsOf(p, now) | (p.mounted ? 4 : 0), pt: p.party ? p.party.id : 0, lk: p.acct.char ? [p.acct.char.power, p.acct.char.aura, p.acct.char.tone, p.acct.char.cloth, p.acct.char.race || 'humano'] : null });
     const snaps = {};
     for (const id in byMap) {
       const w = worlds[id];
@@ -617,7 +660,7 @@ setInterval(() => {
         p.dirty = false;
         send(ws, { t: 'me', inv: p.acct.inv, silver: p.acct.silver, xp: p.acct.xp, lvl: p.acct.lvl,
           hp: Math.round(p.hp), mh: mhpOf(p.acct), mp: Math.round(p.mp), mm: mmpOf(p.acct), nx: p.acct.lvl * 40,
-          tr: p.acct.trades || {}, pw: powersView(p.acct), bar: p.acct.bar || [null, null, null], pb: Pw.powerBudget(p.acct.lvl), cb: p.combo || 0, qs: questsOf(p.acct), up: p.acct.up || {}, upm: UP_MAX, upc: [0, 1, 2, 3, 4].map(upCost) });
+          tr: p.acct.trades || {}, pw: powersView(p.acct), bar: p.acct.bar || [null, null, null], pb: Pw.powerBudget(p.acct.lvl), cb: p.combo || 0, qs: questsOf(p.acct), up: p.acct.up || {}, mt: p.mounted ? 1 : 0, pty: partyMates(p).map((m) => ({ n: m.acct.name, hp: Math.round(m.hp), mh: mhpOf(m.acct), l: m.acct.lvl })), upm: UP_MAX, upc: [0, 1, 2, 3, 4].map(upCost) });
       }
     }
   }

@@ -142,6 +142,7 @@
   <button id="bDash" style="right:92px;bottom:20px">💨<br>Dash</button>
   <button id="bGat"  style="right:150px;bottom:55px">⛏️<br>Recoger</button>
   <button id="bPot"  style="right:0;bottom:130px;width:48px;height:48px">🧪</button>
+  <button id="bMnt"  style="right:0;bottom:184px;width:48px;height:48px">🐎</button>
 </div>
 
 <div id="panel">
@@ -152,6 +153,7 @@
     <button data-tab="powers">Poderes</button>
     <button data-tab="tree">Árbol</button>
     <button data-tab="quests">Misiones</button>
+    <button data-tab="party">Grupo</button>
     <button id="pclose" style="margin-left:auto">✕</button>
   </div>
   <div id="pbody"></div>
@@ -162,7 +164,7 @@
 <script>
 // ================== Configuración ==================
 const TW = 64, TH = 32;
-const NAMES = { wood: 'Madera', stone: 'Piedra', ore: 'Mineral', nucleo: 'Núcleo de maná', espada: 'Espada', armadura: 'Armadura', pocion: 'Poción' };
+const NAMES = { wood: 'Madera', stone: 'Piedra', ore: 'Mineral', nucleo: 'Núcleo de maná', espada: 'Espada', armadura: 'Armadura', pocion: 'Poción', montura: 'Montura' };
 const TRADE = { wood: 'Leñador', stone: 'Cantero', ore: 'Minero' };
 const cv = document.getElementById('c'), ctx = cv.getContext('2d');
 let DPR = 1, VW = 0, VH = 0;
@@ -176,7 +178,7 @@ const players = new Map(), mobs = new Map();
 let bags = [], fx = [], me = { inv: {}, silver: 0, xp: 0, lvl: 1, hp: 100, mh: 100, mp: 50, mm: 50, nx: 40 };
 let market = [], zoomK = 1;
 let cd = { sk: 0, dash: 0, atk: 0 };
-let city = null, enterTab = null;
+let city = null, enterTab = null, pInvite = null;
 let pp = null, cdP = [0, 0, 0], prev = null, prevT = null, lastPSig = '';
 let draft = { name: '', src: 'fuego', shape: 'proyectil', eff: 'dano', mods: { alcance: 0, potencia: 0, rapidez: 0, eficiencia: 0 } };
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -222,6 +224,7 @@ function onMsg(m) {
     case 'pprev': prev = m.r; updatePrev(); break;
     case 'market': market = m.list; if (panelOpen && tab === 'market') renderPanel(); break;
     case 'msg': toast(m.m); break;
+    case 'pinv': pInvite = m.from; toast(m.from + ' te invita a su grupo: abre Menú > Grupo o escribe /aceptar', 6000); if (panelOpen && tab === 'party') renderPanel(); break;
     case 'chat': {
       const d = document.createElement('div'); d.textContent = m.n + ': ' + m.m;
       const l = document.getElementById('chatlog'); l.appendChild(d); while (l.children.length > 6) l.removeChild(l.firstChild);
@@ -254,16 +257,25 @@ let kx = 0, ky = 0, jx = 0, jy = 0, lastSent = '';
 const keys = {};
 addEventListener('keydown', (e) => {
   if (document.activeElement && document.activeElement.tagName === 'INPUT') {
-    if (e.key === 'Enter' && document.activeElement.id === 'chatin') { const v = e.target.value.trim(); if (v) send({ t: 'chat', m: v }); e.target.value = ''; closeChat(); }
+    if (e.key === 'Enter' && document.activeElement.id === 'chatin') { const v = e.target.value.trim(); if (v) chatCmd(v); e.target.value = ''; closeChat(); }
     if (e.key === 'Escape') closeChat();
     return;
   }
   keys[e.key.toLowerCase()] = true;
   const k = e.key.toLowerCase();
   if (k === ' ' || k === 'j') act('atk'); if (k === 'k') act('sk'); if (k === 'l') act('dash');
-  if (k === '1' || k === '2' || k === '3') act('p' + (+k - 1)); if (k === 'e') act('gather'); if (k === 'q') act('potion'); if (k === 'b') togglePanel(); if (k === 'enter') openChat();
+  if (k === '1' || k === '2' || k === '3') act('p' + (+k - 1)); if (k === 'e') act('gather'); if (k === 'q') act('potion'); if (k === 'm') act('mount'); if (k === 'b') togglePanel(); if (k === 'enter') openChat();
 });
 addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+function chatCmd(v) {
+  const m = /^\/(\S+)\s*(.*)$/.exec(v);
+  if (!m) return send({ t: 'chat', m: v });
+  const cmd = m[1].toLowerCase();
+  if (cmd === 'inv' || cmd === 'invitar') send({ t: 'party', a: 'inv', name: m[2].trim() });
+  else if (cmd === 'aceptar') { send({ t: 'party', a: 'acc' }); pInvite = null; }
+  else if (cmd === 'salir') send({ t: 'party', a: 'leave' });
+  else toast('Comandos: /inv Nombre · /aceptar · /salir');
+}
 function act(a) {
   const n = performance.now();
   if (a === 'atk') send({ t: 'atk' });
@@ -271,6 +283,7 @@ function act(a) {
   if (a === 'dash') { send({ t: 'dash' }); cd.dash = n + 4000; }
   if (a === 'gather') send({ t: 'gather' });
   if (a === 'potion') send({ t: 'potion' });
+  if (a === 'mount') send({ t: 'mount' });
   if (a.length === 2 && a[0] === 'p') castSlot(+a[1]);
 }
 function castSlot(i) {
@@ -312,7 +325,7 @@ function bind(id, a, repeat) {
   const stop = () => { clearInterval(t); t = null; };
   b.addEventListener('pointerdown', start); b.addEventListener('pointerup', stop); b.addEventListener('pointerleave', stop); b.addEventListener('pointercancel', stop);
 }
-bind('bP0', 'p0'); bind('bP1', 'p1'); bind('bP2', 'p2'); bind('bAtk', 'atk', true); bind('bSk', 'sk'); bind('bDash', 'dash'); bind('bGat', 'gather', true); bind('bPot', 'potion');
+bind('bP0', 'p0'); bind('bP1', 'p1'); bind('bP2', 'p2'); bind('bAtk', 'atk', true); bind('bSk', 'sk'); bind('bDash', 'dash'); bind('bGat', 'gather', true); bind('bPot', 'potion'); bind('bMnt', 'mount');
 
 function openChat() { const b = document.getElementById('chatbox'); b.style.display = 'block'; document.getElementById('chatin').focus(); }
 function closeChat() { document.getElementById('chatbox').style.display = 'none'; document.getElementById('chatin').blur(); }
@@ -355,6 +368,13 @@ function renderPanel() {
     h += powersHTML();
   } else if (tab === 'tree') {
     h += treeHTML();
+  } else if (tab === 'party') {
+    h += '<p><small>Los miembros del grupo (máx. 4) reciben la mitad de la experiencia de cada monstruo que mates cerca y avanzan sus misiones de matar. También puedes escribir /inv Nombre, /aceptar y /salir en el chat.</small></p>';
+    if (pInvite) h += `<div class="row"><div><b>${esc(pInvite)}</b> te invita a su grupo</div><button data-pacc="1">Aceptar</button></div>`;
+    const mates = me.pty || [];
+    if (mates.length) { h += '<b>Tu grupo</b>' + mates.map((q) => `<div class="row"><div>${esc(q.n)} · Nv ${q.l}<br><small>HP ${q.hp}/${q.mh}</small></div></div>`).join('') + '<div class="row"><span></span><button data-pleave="1">Salir del grupo</button></div>'; }
+    const near = [...players.values()].filter((o) => o.id !== myId && !mates.some((q) => q.n === o.n));
+    h += '<b>Jugadores cerca</b>' + (near.length ? near.map((o) => `<div class="row"><div>${esc(o.n)} · Nv ${o.l}</div><button data-pinv="${esc(o.n)}">Invitar</button></div>`).join('') : '<p><small>No hay nadie cerca.</small></p>');
   } else if (tab === 'quests') {
     const QN = { kill: 'Derrota monstruos', wood: 'Recolecta madera', stone: 'Recolecta piedra', ore: 'Recolecta mineral', boss: 'Derrota a un jefe' };
     h += '<p><small>Completa misiones para ganar plata, experiencia y núcleos. Al reclamar una sale otra nueva.</small></p>';
@@ -369,6 +389,9 @@ function renderPanel() {
   pbody.innerHTML = h; pbody.scrollTop = keep;
   pbody.querySelectorAll('[data-qclaim]').forEach((b) => b.onclick = () => send({ t: 'qclaim', i: +b.dataset.qclaim }));
   pbody.querySelectorAll('[data-up]').forEach((b) => b.onclick = () => send({ t: 'upgrade', item: b.dataset.up }));
+  pbody.querySelectorAll('[data-pinv]').forEach((b) => b.onclick = () => send({ t: 'party', a: 'inv', name: b.dataset.pinv }));
+  pbody.querySelectorAll('[data-pacc]').forEach((b) => b.onclick = () => { send({ t: 'party', a: 'acc' }); pInvite = null; renderPanel(); });
+  pbody.querySelectorAll('[data-pleave]').forEach((b) => b.onclick = () => send({ t: 'party', a: 'leave' }));
   pbody.querySelectorAll('[data-craft]').forEach((b) => b.onclick = () => send({ t: 'craft', item: b.dataset.craft }));
   pbody.querySelectorAll('[data-buy]').forEach((b) => b.onclick = () => send({ t: 'buy', id: +b.dataset.buy }));
   pbody.querySelectorAll('[data-cancel]').forEach((b) => b.onclick = () => send({ t: 'cancel', id: +b.dataset.cancel }));
@@ -496,7 +519,7 @@ function hud() {
   document.querySelector('#hp i').style.width = Math.max(0, me.hp / me.mh * 100) + '%';
   document.querySelector('#mp i').style.width = Math.max(0, me.mp / me.mm * 100) + '%';
   document.querySelector('#xp i').style.width = (me.xp / me.nx * 100) + '%';
-  document.getElementById('info').innerHTML = `Nv ${me.lvl} · HP ${me.hp}/${me.mh} · MP ${me.mp}<br>🪙 ${me.silver}${me.cb > 1 ? ` · 🔥 Racha x${me.cb}` : ''}`;
+  document.getElementById('info').innerHTML = `Nv ${me.lvl} · HP ${me.hp}/${me.mh} · MP ${me.mp}<br>🪙 ${me.silver}${me.mt ? ' · 🐎' : ''}${me.cb > 1 ? ` · 🔥 Racha x${me.cb}` : ''}`;
 }
 
 // ================== Login ==================
@@ -773,9 +796,10 @@ function drawPlayer(o, t) {
   const p = iso(o.rx, o.ry), mine = o.id === myId;
   ctx.fillStyle = '#0005'; ctx.beginPath(); ctx.ellipse(p.x, p.y, 14, 7, 0, 0, 7); ctx.fill();
   if (mine) { ctx.strokeStyle = '#fff8'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(p.x, p.y, 17, 9, 0, 0, 7); ctx.stroke(); }
+  if (o.fl & 4) { ctx.fillStyle = '#6b4a2b'; ctx.beginPath(); ctx.ellipse(p.x, p.y - 8, 20, 9, 0, 0, 7); ctx.fill(); ctx.fillStyle = '#8a6238'; ctx.beginPath(); ctx.arc(p.x + 18, p.y - 14, 6, 0, 7); ctx.fill(); ctx.fillStyle = '#111'; ctx.fillRect(p.x - 18, p.y - 2, 3, 8); ctx.fillRect(p.x + 12, p.y - 2, 3, 8); p.y -= 8; }
   drawBody(ctx, p.x, p.y, o.lk ? { pw: o.lk[0], au: o.lk[1], tn: o.lk[2], cl: o.lk[3], rc: o.lk[4] } : null, t, o.sw, o.n);
   ctx.font = '12px system-ui'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000';
-  const label = o.n + ' [' + o.l + ']'; ctx.strokeText(label, p.x, p.y - 56); ctx.fillStyle = mine ? '#ffe27a' : '#fff'; ctx.fillText(label, p.x, p.y - 56);
+  const label = o.n + ' [' + o.l + ']'; ctx.strokeText(label, p.x, p.y - 56); const myP = (players.get(myId) || {}).pt; ctx.fillStyle = mine ? '#ffe27a' : (o.pt && o.pt === myP ? '#8dff9a' : '#fff'); ctx.fillText(label, p.x, p.y - 56);
   bar(p.x, p.y - 51, 34, o.hp / o.mh, '#4cc35a'); flagIcons(p.x, p.y - 62, o.fl);
 }
 requestAnimationFrame(frame);
