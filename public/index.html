@@ -331,6 +331,12 @@ function renderPanel() {
       const r = recipes[k], ok = Object.keys(r).every((m) => (inv[m] || 0) >= r[m]);
       h += `<div class="row"><div><b>${NAMES[k]}</b><br><small>${Object.keys(r).map((m) => `${NAMES[m]} ${inv[m] || 0}/${r[m]}`).join(' · ')}</small></div><button data-craft="${k}" ${ok ? '' : 'disabled style="opacity:.4"'}>Fabricar</button></div>`;
     }
+    h += '<b>Mejoras</b><p><small>Mejora tu equipo con núcleos y plata. Cada nivel sube el daño de la espada (+4) o la defensa de la armadura (+3%). Puede fallar y perder los materiales: cada nivel es más arriesgado.</small></p>';
+    for (const k of ['espada', 'armadura']) {
+      const n = (me.up || {})[k] || 0, has = (inv[k] || 0) > 0, max = n >= (me.upm || 5), co = (me.upc || [])[n];
+      const ok = has && !max && co && (inv.nucleo || 0) >= co.nucleo && me.silver >= co.silver;
+      h += `<div class="row"><div><b>${NAMES[k]} +${n}</b><br><small>${!has ? 'No la tienes: fabrícala primero' : max ? 'Nivel máximo' : `⚛ ${co.nucleo} · 🪙 ${co.silver} · éxito ${Math.round((0.85 - 0.1 * n) * 100)}%`}</small></div><button data-up="${k}" ${ok ? '' : 'disabled style="opacity:.4"'}>Mejorar</button></div>`;
+    }
   } else if (tab === 'powers') {
     h += powersHTML();
   } else if (tab === 'tree') {
@@ -348,6 +354,7 @@ function renderPanel() {
   }
   pbody.innerHTML = h; pbody.scrollTop = keep;
   pbody.querySelectorAll('[data-qclaim]').forEach((b) => b.onclick = () => send({ t: 'qclaim', i: +b.dataset.qclaim }));
+  pbody.querySelectorAll('[data-up]').forEach((b) => b.onclick = () => send({ t: 'upgrade', item: b.dataset.up }));
   pbody.querySelectorAll('[data-craft]').forEach((b) => b.onclick = () => send({ t: 'craft', item: b.dataset.craft }));
   pbody.querySelectorAll('[data-buy]').forEach((b) => b.onclick = () => send({ t: 'buy', id: +b.dataset.buy }));
   pbody.querySelectorAll('[data-cancel]').forEach((b) => b.onclick = () => send({ t: 'cancel', id: +b.dataset.cancel }));

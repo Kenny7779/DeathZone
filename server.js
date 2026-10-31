@@ -108,7 +108,9 @@ let events = [];
 // ---------- jugador ----------
 const mhpOf = (a) => 100 + (a.lvl - 1) * 10;
 const mmpOf = (a) => 50 + (a.lvl - 1) * 5;
-const baseDmg = (p) => 10 + p.acct.lvl * 2 + ((p.acct.inv.espada || 0) > 0 ? 12 : 0);
+const UP_MAX = 5, upOf = (a, k) => (a.up && a.up[k]) || 0;
+const upCost = (n) => ({ nucleo: n + 1, silver: 30 * (n + 1) });      // mejorar de +n a +n+1
+const baseDmg = (p) => 10 + p.acct.lvl * 2 + ((p.acct.inv.espada || 0) > 0 ? 12 + 4 * upOf(p.acct, 'espada') : 0);
 
 function send(ws, obj) { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); }
 function broadcast(obj) { const s = JSON.stringify(obj); for (const ws of players.keys()) if (ws.readyState === 1) ws.send(s); }
@@ -147,7 +149,7 @@ function killPlayer(p, killer) {
   respawn(p);
 }
 function hurtPlayer(p, amt, killer) {
-  if (p.acct.inv.armadura > 0) amt = Math.round(amt * 0.7);
+  if (p.acct.inv.armadura > 0) amt = Math.round(amt * (0.7 - 0.03 * upOf(p.acct, 'armadura')));
   p.hp -= amt; p.dirty = true;
   events.push({ w: p.map, t: 'dmg', x: p.x, y: p.y, v: amt });
   if (p.hp <= 0) killPlayer(p, killer);
@@ -353,6 +355,19 @@ function handle(ws, p, msg) {
       const i = listings.findIndex((l) => l.id === msg.id && l.seller === p.acct.name); if (i < 0) return;
       const l = listings.splice(i, 1)[0]; addItem(p.acct, l.item, l.qty);
       p.dirty = true; broadcast({ t: 'market', list: listings });
+      break;
+    }
+    case 'upgrade': {
+      const k = msg.item; if (k !== 'espada' && k !== 'armadura') return;
+      const a = p.acct, n = upOf(a, k);
+      if (!(a.inv[k] > 0)) return send(ws, { t: 'msg', m: 'Primero fabrica ese equipo.' });
+      if (n >= UP_MAX) return send(ws, { t: 'msg', m: 'Ya está al máximo.' });
+      const c = upCost(n);
+      if ((a.inv.nucleo || 0) < c.nucleo || a.silver < c.silver) return send(ws, { t: 'msg', m: `Mejorar cuesta ${c.nucleo} núcleos y ${c.silver} de plata` });
+      addItem(a, 'nucleo', -c.nucleo); a.silver -= c.silver;
+      if (rnd() < 0.85 - 0.1 * n) { a.up = a.up || {}; a.up[k] = n + 1; send(ws, { t: 'msg', m: '¡' + k + ' mejorada a +' + (n + 1) + '!' }); }
+      else send(ws, { t: 'msg', m: 'La mejora falló (se gastaron los materiales).' });
+      p.dirty = true;
       break;
     }
     case 'qclaim': {
@@ -570,7 +585,7 @@ setInterval(() => {
         p.dirty = false;
         send(ws, { t: 'me', inv: p.acct.inv, silver: p.acct.silver, xp: p.acct.xp, lvl: p.acct.lvl,
           hp: Math.round(p.hp), mh: mhpOf(p.acct), mp: Math.round(p.mp), mm: mmpOf(p.acct), nx: p.acct.lvl * 40,
-          tr: p.acct.trades || {}, pw: powersView(p.acct), bar: p.acct.bar || [null, null, null], pb: Pw.powerBudget(p.acct.lvl), cb: p.combo || 0, qs: questsOf(p.acct) });
+          tr: p.acct.trades || {}, pw: powersView(p.acct), bar: p.acct.bar || [null, null, null], pb: Pw.powerBudget(p.acct.lvl), cb: p.combo || 0, qs: questsOf(p.acct), up: p.acct.up || {}, upm: UP_MAX, upc: [0, 1, 2, 3, 4].map(upCost) });
       }
     }
   }
