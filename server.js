@@ -623,7 +623,7 @@ wss.on('connection', (ws) => {
 });
 
 // ---------- bucle principal ----------
-let tickN = 0, last = Date.now();
+let tickN = 0, last = Date.now(), nextInvasion = Date.now() + 180000;
 setInterval(() => {
   const now = Date.now(), dt = Math.min(0.1, (now - last) / 1000); last = now; tickN++;
 
@@ -658,14 +658,29 @@ setInterval(() => {
 
   const byMap = {};
   for (const p of players.values()) (byMap[p.map] = byMap[p.map] || []).push(p);
+  // Invasión: cada 5-8 minutos una horda aparece alrededor de los jugadores de la zona de la muerte (botín x2,5, desaparece a los 4 min)
+  if (now >= nextInvasion) {
+    nextInvasion = now + 300000 + rnd() * 180000;
+    const hereI = byMap.muerte || [], d = MAPDEF.muerte;
+    if (hereI.length) {
+      const c = hereI[Math.floor(rnd() * hereI.length)], w = worlds.muerte;
+      for (let i = 0; i < 12; i++) {
+        const k = rnd() < 0.5 ? 'rap' : rnd() < 0.7 ? 'nor' : 'bru', K = KINDS[k], hp = Math.round(d.hp * K.hp);
+        const a = rnd() * 6.28, r = 9 + rnd() * 5, x = clamp(c.x + Math.cos(a) * r, 2, w.W - 2), y = clamp(c.y + Math.sin(a) * r, 2, w.H - 2);
+        w.mobs.push({ id: newId(), w: 'muerte', k, sp: K.sp * 1.1, ag: 14, x, y, hx: x, hy: y, hp, mhp: hp, dmg: Math.round(d.dmg * K.dmg), rew: d.rew * K.rew * 2.5, core: d.core, rt: 0, tmp: true, exp: now + 240000, alive: true, respawn: 0, cd: 0 });
+      }
+      for (const q of hereI) send(q.ws, { t: 'msg', m: '¡Invasión! Una horda ataca la Zona de la muerte.' });
+    }
+  }
   for (const id in worlds) {
     const w = worlds[id], here = byMap[id] || [];
     for (const m of w.mobs) {
+      if (m.tmp && (!m.alive || now > m.exp)) { m.gone = true; continue; }
       if (!m.alive) { if (now >= m.respawn) { m.sc = 0; m.alive = true; m.hp = m.mhp; m.x = m.hx; m.y = m.hy; m.slowUntil = 0; } continue; }
       const mf = now < (m.slowUntil || 0) ? (m.slowMul || 0.6) : 1;
       let target = null, td = m.ag;
       for (const p of here) { const d = dist(m, p); if (d < td) { td = d; target = p; } }
-      if (target && dist(m, { x: m.hx, y: m.hy }) < (m.k === 'jef' ? 22 : 14)) {
+      if (target && dist(m, { x: m.hx, y: m.hy }) < (m.k === 'jef' ? 22 : m.tmp ? 40 : 14)) {
         if (m.k === 'jef' && td < 3.2 && now >= m.sc) {   // pisotón del jefe: daño en área
           m.sc = now + 5000; events.push({ w: id, t: 'slash', x: m.x, y: m.y });
           for (const q of here.slice()) if (dist(m, q) < 3.2) hurtPlayer(q, Math.round(m.dmg * 1.5), null);
@@ -676,6 +691,7 @@ setInterval(() => {
         if (hd > 0.5) { m.x += ((m.hx - m.x) / hd) * 2 * mf * dt; m.y += ((m.hy - m.y) / hd) * 2 * mf * dt; }
       }
     }
+    if (w.mobs.some((m) => m.gone)) w.mobs = w.mobs.filter((m) => !m.gone);
     for (const r of w.res) if (!r.alive && now >= r.respawn) { r.alive = true; r.hp = r.t === 'ore' ? 4 : 3; }
     for (let i = w.bags.length - 1; i >= 0; i--) if (now > w.bags[i].expires) w.bags.splice(i, 1);
   }
@@ -686,6 +702,8 @@ setInterval(() => {
     events = [];
     const AOI = 45, near = (e, p) => Math.abs(e.x - p.x) <= AOI && Math.abs(e.y - p.y) <= AOI;   // área de interés de cada jugador
     const pv = (p) => ({ id: p.id, n: p.acct.name, x: +p.x.toFixed(2), y: +p.y.toFixed(2), hp: Math.round(p.hp), mh: mhpOf(p.acct), l: p.acct.lvl, sw: p.acct.inv.espada > 0 ? 1 : 0, fl: flagsOf(p, now) | (p.mounted ? 4 : 0), pt: p.party ? p.party.id : 0, lk: p.acct.char ? [p.acct.char.power, p.acct.char.aura, p.acct.char.tone, p.acct.char.cloth, p.acct.char.race || 'humano'] : null });
+    for (const k in byMap) delete byMap[k];   // la gente pudo cambiar de mapa (muerte, bordes) durante este tick
+    for (const q of players.values()) (byMap[q.map] = byMap[q.map] || []).push(q);
     const snaps = {};
     for (const id in byMap) {
       const w = worlds[id];
