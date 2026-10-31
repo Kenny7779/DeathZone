@@ -154,6 +154,7 @@
     <button data-tab="tree">Árbol</button>
     <button data-tab="quests">Misiones</button>
     <button data-tab="party">Grupo</button>
+    <button data-tab="gear">Equipo</button>
     <button id="pclose" style="margin-left:auto">✕</button>
   </div>
   <div id="pbody"></div>
@@ -368,6 +369,14 @@ function renderPanel() {
     h += powersHTML();
   } else if (tab === 'tree') {
     h += treeHTML();
+  } else if (tab === 'gear') {
+    const SL = { casco: ['🪖', 'hp'], pecho: ['🛡️', 'def'], botas: ['👢', 'spd'], anillo: ['💍', 'dmg'] }, RC = ['#c8ccd2', '#5fd35f', '#4aa3ff', '#c05cff'], RN = ['Común', 'Poco común', 'Raro', 'Épico'];
+    const fv = (g) => SL[g.slot][1] === 'hp' ? '+' + g.v + ' vida' : '+' + Math.round(g.v * 1000) / 10 + '% ' + { def: 'defensa', spd: 'velocidad', dmg: 'daño' }[SL[g.slot][1]];
+    const gear = me.gear || [], eq = me.eq || {};
+    h += '<p><small>Los monstruos sueltan equipo (los jefes, siempre raro o mejor). Equipa una pieza por ranura. El equipo no se pierde al morir.</small></p><b>Equipado</b>';
+    for (const k of Object.keys(SL)) { const g = gear.find((x) => x.id === eq[k]); h += g ? `<div class="row"><div><b style="color:${RC[g.rar]}">${SL[k][0]} ${g.name}</b><br><small>${RN[g.rar]} · ${fv(g)}</small></div><button data-uneq="${k}">Quitar</button></div>` : `<div class="row"><div style="opacity:.5">${SL[k][0]} ${k} — vacío</div></div>`; }
+    h += `<b>Bolsa (${gear.length}/${me.gmax || 24})</b>`;
+    h += gear.length ? gear.map((g) => `<div class="row"><div><b style="color:${RC[g.rar]}">${SL[g.slot][0]} ${g.name}</b><br><small>${RN[g.rar]} · ${fv(g)}${eq[g.slot] === g.id ? ' · equipado' : ''}</small></div><span><button data-eq="${g.id}" ${eq[g.slot] === g.id ? 'disabled style="opacity:.4"' : ''}>Equipar</button> <button data-scrap="${g.id}">🪙 ${10 * (g.rar + 1) * g.tier}</button></span></div>`).join('') : '<p><small>Aún no tienes piezas de equipo.</small></p>';
   } else if (tab === 'party') {
     h += '<p><small>Los miembros del grupo (máx. 4) reciben la mitad de la experiencia de cada monstruo que mates cerca y avanzan sus misiones de matar. También puedes escribir /inv Nombre, /aceptar y /salir en el chat.</small></p>';
     if (pInvite) h += `<div class="row"><div><b>${esc(pInvite)}</b> te invita a su grupo</div><button data-pacc="1">Aceptar</button></div>`;
@@ -392,6 +401,9 @@ function renderPanel() {
   pbody.querySelectorAll('[data-pinv]').forEach((b) => b.onclick = () => send({ t: 'party', a: 'inv', name: b.dataset.pinv }));
   pbody.querySelectorAll('[data-pacc]').forEach((b) => b.onclick = () => { send({ t: 'party', a: 'acc' }); pInvite = null; renderPanel(); });
   pbody.querySelectorAll('[data-pleave]').forEach((b) => b.onclick = () => send({ t: 'party', a: 'leave' }));
+  pbody.querySelectorAll('[data-eq]').forEach((b) => b.onclick = () => send({ t: 'equip', id: +b.dataset.eq }));
+  pbody.querySelectorAll('[data-uneq]').forEach((b) => b.onclick = () => send({ t: 'unequip', slot: b.dataset.uneq }));
+  pbody.querySelectorAll('[data-scrap]').forEach((b) => b.onclick = () => send({ t: 'scrap', id: +b.dataset.scrap }));
   pbody.querySelectorAll('[data-craft]').forEach((b) => b.onclick = () => send({ t: 'craft', item: b.dataset.craft }));
   pbody.querySelectorAll('[data-buy]').forEach((b) => b.onclick = () => send({ t: 'buy', id: +b.dataset.buy }));
   pbody.querySelectorAll('[data-cancel]').forEach((b) => b.onclick = () => send({ t: 'cancel', id: +b.dataset.cancel }));

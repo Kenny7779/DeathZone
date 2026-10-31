@@ -33,15 +33,15 @@ const MAPDEF = {
       { id: 'puerta',   name: 'Puerta de la zona de la muerte', x: 41.6, y: 16, w: 1.4, d: 8, h: 70, roof: '#7a1f1f', tab: null, solid: false },
     ],
     links: [{ side: 'e', min: 16, max: 24, to: 'muerte' }] },
-  muerte: { name: 'Zona de la muerte', W: 120, H: 120, biome: 'death', hp: 60, dmg: 8, rew: 1, core: 0.3, mobs: 55, tree: 150, rock: 90, ore: 80,
+  muerte: { tier: 1, name: 'Zona de la muerte', W: 120, H: 120, biome: 'death', hp: 60, dmg: 8, rew: 1, core: 0.3, mobs: 55, tree: 150, rock: 90, ore: 80,
     links: [{ side: 'w', to: 'lobby' }, { side: 'n', to: 'bosque' }, { side: 's', to: 'hielo' }, { side: 'e', to: 'desierto' }] },
-  bosque: { name: 'Bosque encantado', W: 100, H: 100, biome: 'forest', hp: 40, dmg: 5, rew: 0.7, core: 0.12, mobs: 35, tree: 320, rock: 40, ore: 20,
+  bosque: { tier: 1, name: 'Bosque encantado', W: 100, H: 100, biome: 'forest', hp: 40, dmg: 5, rew: 0.7, core: 0.12, mobs: 35, tree: 320, rock: 40, ore: 20,
     links: [{ side: 's', to: 'muerte' }] },
-  hielo: { name: 'Tundra helada', W: 100, H: 100, biome: 'ice', hp: 90, dmg: 11, rew: 1.5, core: 0.4, mobs: 45, tree: 60, rock: 150, ore: 110,
+  hielo: { tier: 2, name: 'Tundra helada', W: 100, H: 100, biome: 'ice', hp: 90, dmg: 11, rew: 1.5, core: 0.4, mobs: 45, tree: 60, rock: 150, ore: 110,
     links: [{ side: 'n', to: 'muerte' }] },
-  desierto: { name: 'Desierto de cristal', W: 110, H: 110, biome: 'desert', hp: 110, dmg: 13, rew: 2, core: 0.45, mobs: 45, tree: 20, rock: 170, ore: 140,
+  desierto: { tier: 3, name: 'Desierto de cristal', W: 110, H: 110, biome: 'desert', hp: 110, dmg: 13, rew: 2, core: 0.45, mobs: 45, tree: 20, rock: 170, ore: 140,
     links: [{ side: 'w', to: 'muerte' }, { side: 'e', to: 'ruinas' }] },
-  ruinas: { name: 'Ruinas arcanas', W: 100, H: 100, biome: 'ruins', hp: 170, dmg: 18, rew: 3, core: 0.7, mobs: 40, tree: 30, rock: 120, ore: 160,
+  ruinas: { tier: 4, name: 'Ruinas arcanas', W: 100, H: 100, biome: 'ruins', hp: 170, dmg: 18, rew: 3, core: 0.7, mobs: 40, tree: 30, rock: 120, ore: 160,
     links: [{ side: 'w', to: 'desierto' }] },
 };
 // Colisiones: los edificios son sólidos (la puerta se puede cruzar). El jugador mide 0,4 tiles de radio.
@@ -117,7 +117,22 @@ let events = [];
 
 // ---------- jugador ----------
 const raceOf = (a) => { const r = a.char && a.char.race; return (typeof r === 'string' && Object.prototype.hasOwnProperty.call(RACES, r)) ? RACES[r] : RACES.humano; };
-const mhpOf = (a) => Math.max(40, 100 + (a.lvl - 1) * 10 + raceOf(a).hp);
+// ---------- equipo con rareza: casco (vida), pecho (defensa), botas (velocidad), anillo (daño) ----------
+const SLOTS = { casco: { ico: '🪖', n: 'Casco', k: 'hp', base: 12 }, pecho: { ico: '🛡️', n: 'Peto', k: 'def', base: 0.03 }, botas: { ico: '👢', n: 'Botas', k: 'spd', base: 0.03 }, anillo: { ico: '💍', n: 'Anillo', k: 'dmg', base: 0.04 } };
+const RARS = [{ n: 'Común', m: 1, c: '#c8ccd2' }, { n: 'Poco común', m: 1.5, c: '#5fd35f' }, { n: 'Raro', m: 2.2, c: '#4aa3ff' }, { n: 'Épico', m: 3.2, c: '#c05cff' }];
+const TIER_N = ['rústico', 'de hierro', 'glacial', 'de cristal', 'arcano'], GEAR_MAX = 24;
+function rollGear(tier, minRar) {
+  const r = rnd(), rar = Math.max(minRar || 0, r < 0.6 ? 0 : r < 0.85 ? 1 : r < 0.97 ? 2 : 3);
+  const keys = Object.keys(SLOTS), slot = keys[Math.floor(rnd() * keys.length)], S = SLOTS[slot];
+  const v = S.base * RARS[rar].m * (1 + 0.35 * (tier - 1));
+  return { id: newId(), slot, rar, tier, name: S.n + ' ' + TIER_N[Math.min(4, tier)], v: S.k === 'hp' ? Math.round(v) : +v.toFixed(3) };
+}
+function gearStat(a) {
+  const o = { hp: 0, def: 0, spd: 0, dmg: 0 };
+  for (const id of Object.values(a.eq || {})) { const g = (a.gear || []).find((x) => x.id === id); if (g) o[SLOTS[g.slot].k] += g.v; }
+  return o;
+}
+const mhpOf = (a) => Math.max(40, 100 + (a.lvl - 1) * 10 + raceOf(a).hp + gearStat(a).hp);
 const mmpOf = (a) => Math.max(20, 50 + (a.lvl - 1) * 5 + raceOf(a).mp);
 const UP_MAX = 5, upOf = (a, k) => (a.up && a.up[k]) || 0;
 const upCost = (n) => ({ nucleo: n + 1, silver: 30 * (n + 1) });      // mejorar de +n a +n+1
@@ -170,6 +185,7 @@ function killPlayer(p, killer) {
 }
 function hurtPlayer(p, amt, killer) {
   if (p.acct.inv.armadura > 0) amt = Math.round(amt * (0.7 - 0.03 * upOf(p.acct, 'armadura')));
+  amt = Math.round(amt * (1 - Math.min(0.4, gearStat(p.acct).def)));
   p.hp -= amt; p.dirty = true;
   if (p.mounted) { p.mounted = false; send(p.ws, { t: 'msg', m: '¡Te tiran de la montura!' }); }
   events.push({ w: p.map, t: 'dmg', x: p.x, y: p.y, v: amt });
@@ -189,6 +205,7 @@ function questsOf(a) {
 }
 function qprog(p, k, n) { for (const q of questsOf(p.acct)) if (q.k === k && q.got < q.n) { q.got = Math.min(q.n, q.got + n); p.dirty = true; } }
 function hurtMob(m, amt, killer, crit) {
+  amt = Math.round(amt * (1 + gearStat(killer.acct).dmg));
   m.hp -= amt;
   events.push({ w: m.w, t: 'dmg', x: m.x, y: m.y, v: amt, c: crit ? 1 : 0 });
   if (m.hp <= 0) {
@@ -201,6 +218,12 @@ function hurtMob(m, amt, killer, crit) {
     if (rnd() < m.core) addItem(killer.acct, 'nucleo', m.k === 'jef' ? 3 : 1); // los núcleos solo salen de los monstruos fuera de la ciudad
     if (rnd() < (m.k === 'jef' ? 1 : 0.1)) { addItem(killer.acct, 'pocion', 1); send(killer.ws, { t: 'msg', m: 'Soltó una poción' }); }
     for (const q of partyMates(killer)) if (q.map === killer.map && dist(q, killer) < 40) { addXp(q, Math.round(4 * m.rew * bonus)); qprog(q, 'kill', 1); if (m.k === 'jef') qprog(q, 'boss', 1); }
+    if (rnd() < (m.k === 'jef' ? 1 : m.k === 'bru' ? 0.12 : 0.06)) {                     // botín de equipo
+      const a = killer.acct, g = rollGear(worlds[m.w].tier || 1, m.k === 'jef' ? 2 : 0);
+      a.gear = a.gear || [];
+      if (a.gear.length >= GEAR_MAX) { a.silver += 10 * (g.rar + 1) * g.tier; send(killer.ws, { t: 'msg', m: 'Bolsa de equipo llena: vendiste ' + g.name + ' (' + RARS[g.rar].n + ')' }); }
+      else { a.gear.push(g); send(killer.ws, { t: 'msg', m: 'Botín: ' + g.name + ' (' + RARS[g.rar].n + ')' }); }
+    }
     qprog(killer, 'kill', 1); if (m.k === 'jef') qprog(killer, 'boss', 1);
     if (m.k === 'jef') broadcast({ t: 'msg', m: killer.acct.name + ' derrotó al jefe de ' + worlds[m.w].name + '!' });
     else if (killer.combo >= 3 && killer.combo % 3 === 0) send(killer.ws, { t: 'msg', m: 'Racha x' + killer.combo + ' (+' + Math.round((bonus - 1) * 100) + '% botín)' });
@@ -423,6 +446,25 @@ function handle(ws, p, msg) {
       } else if (msg.a === 'leave') leaveParty(p);
       break;
     }
+    case 'equip': {
+      const a = p.acct, id = Math.floor(+msg.id), g = (a.gear || []).find((x) => x.id === id);
+      if (!g) return;
+      a.eq = a.eq || {}; a.eq[g.slot] = id; p.hp = Math.min(p.hp, mhpOf(a)); p.dirty = true;
+      break;
+    }
+    case 'unequip': {
+      const a = p.acct; if (!a.eq || !hasOwn(SLOTS, msg.slot)) return;
+      delete a.eq[msg.slot]; p.hp = Math.min(p.hp, mhpOf(a)); p.dirty = true;
+      break;
+    }
+    case 'scrap': {
+      const a = p.acct, id = Math.floor(+msg.id), i = (a.gear || []).findIndex((x) => x.id === id);
+      if (i < 0) return;
+      const g = a.gear.splice(i, 1)[0];
+      for (const k in a.eq || {}) if (a.eq[k] === id) delete a.eq[k];
+      a.silver += 10 * (g.rar + 1) * g.tier; p.hp = Math.min(p.hp, mhpOf(a)); p.dirty = true;
+      break;
+    }
     case 'qclaim': {
       const qs = questsOf(p.acct), i = Math.floor(+msg.i), q = qs[i];
       if (!q || q.got < q.n) return;
@@ -587,7 +629,7 @@ setInterval(() => {
 
   for (const p of players.values()) {
     if (now - p.lastIn > 1000) { p.dx = 0; p.dy = 0; }
-    const wd = worlds[p.map], sp = SPEED * raceOf(p.acct).spd * (p.mounted && p.acct.inv.montura > 0 ? 1.5 : 1) * (now < (p.slowUntil || 0) ? (p.slowMul || 0.6) : 1);
+    const wd = worlds[p.map], sp = SPEED * raceOf(p.acct).spd * (1 + gearStat(p.acct).spd) * (p.mounted && p.acct.inv.montura > 0 ? 1.5 : 1) * (now < (p.slowUntil || 0) ? (p.slowMul || 0.6) : 1);
     const nx = clamp(p.x + p.dx * sp * dt, 0.5, wd.W - 0.5);
     if (!blockedAt(wd, nx, p.y)) p.x = nx;
     const ny = clamp(p.y + p.dy * sp * dt, 0.5, wd.H - 0.5);
@@ -660,7 +702,7 @@ setInterval(() => {
         p.dirty = false;
         send(ws, { t: 'me', inv: p.acct.inv, silver: p.acct.silver, xp: p.acct.xp, lvl: p.acct.lvl,
           hp: Math.round(p.hp), mh: mhpOf(p.acct), mp: Math.round(p.mp), mm: mmpOf(p.acct), nx: p.acct.lvl * 40,
-          tr: p.acct.trades || {}, pw: powersView(p.acct), bar: p.acct.bar || [null, null, null], pb: Pw.powerBudget(p.acct.lvl), cb: p.combo || 0, qs: questsOf(p.acct), up: p.acct.up || {}, mt: p.mounted ? 1 : 0, pty: partyMates(p).map((m) => ({ n: m.acct.name, hp: Math.round(m.hp), mh: mhpOf(m.acct), l: m.acct.lvl })), upm: UP_MAX, upc: [0, 1, 2, 3, 4].map(upCost) });
+          tr: p.acct.trades || {}, pw: powersView(p.acct), bar: p.acct.bar || [null, null, null], pb: Pw.powerBudget(p.acct.lvl), cb: p.combo || 0, qs: questsOf(p.acct), up: p.acct.up || {}, gear: p.acct.gear || [], eq: p.acct.eq || {}, gst: gearStat(p.acct), gmax: GEAR_MAX, mt: p.mounted ? 1 : 0, pty: partyMates(p).map((m) => ({ n: m.acct.name, hp: Math.round(m.hp), mh: mhpOf(m.acct), l: m.acct.lvl })), upm: UP_MAX, upc: [0, 1, 2, 3, 4].map(upCost) });
       }
     }
   }
