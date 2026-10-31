@@ -11,6 +11,15 @@ function hashPass(pass, salt) { return crypto.scryptSync(pass, salt, 32).toStrin
 const PORT = process.env.PORT || 3000;
 const TICK = 50;             // 20 Hz
 const SPEED = 4.5;           // tiles/seg
+// Razas: cada una da pequeñas ventajas y desventajas (hp/mp: vida y energía base, dmg: daño base, spd: velocidad, xp: experiencia, gat: prob. de recolección extra).
+const RACES = {
+  humano: { name: 'Humano', ico: '🧑', desc: '+15% de experiencia', hp: 0, mp: 0, dmg: 0, spd: 1, xp: 1.15, gat: 0 },
+  elfo:   { name: 'Elfo', ico: '🧝', desc: '+25 energía · +6% velocidad', hp: 0, mp: 25, dmg: 0, spd: 1.06, xp: 1, gat: 0 },
+  enano:  { name: 'Enano', ico: '🧔', desc: '+25 vida · +15% recolección extra', hp: 25, mp: 0, dmg: 0, spd: 1, xp: 1, gat: 0.15 },
+  orco:   { name: 'Orco', ico: '👹', desc: '+4 daño · +15 vida · −15 energía', hp: 15, mp: -15, dmg: 4, spd: 1, xp: 1, gat: 0 },
+  felino: { name: 'Felino', ico: '🐱', desc: '+12% velocidad · −10 vida', hp: -10, mp: 0, dmg: 0, spd: 1.12, xp: 1, gat: 0 },
+};
+const MAX_CHARS = 3;
 // Mapas. La ciudad es el lobby (zona principal, segura): ahí apareces y reapareces. Su puerta lleva al mundo de enemigos
 // (zona de la muerte). Al llegar al borde de un mapa pasas al mapa vecino (links). Los edificios abren su menú al acercarte.
 const MAPDEF = {
@@ -106,17 +115,18 @@ const players = new Map(); // ws -> player
 let events = [];
 
 // ---------- jugador ----------
-const mhpOf = (a) => 100 + (a.lvl - 1) * 10;
-const mmpOf = (a) => 50 + (a.lvl - 1) * 5;
+const raceOf = (a) => { const r = a.char && a.char.race; return (typeof r === 'string' && Object.prototype.hasOwnProperty.call(RACES, r)) ? RACES[r] : RACES.humano; };
+const mhpOf = (a) => Math.max(40, 100 + (a.lvl - 1) * 10 + raceOf(a).hp);
+const mmpOf = (a) => Math.max(20, 50 + (a.lvl - 1) * 5 + raceOf(a).mp);
 const UP_MAX = 5, upOf = (a, k) => (a.up && a.up[k]) || 0;
 const upCost = (n) => ({ nucleo: n + 1, silver: 30 * (n + 1) });      // mejorar de +n a +n+1
-const baseDmg = (p) => 10 + p.acct.lvl * 2 + ((p.acct.inv.espada || 0) > 0 ? 12 + 4 * upOf(p.acct, 'espada') : 0);
+const baseDmg = (p) => 10 + p.acct.lvl * 2 + raceOf(p.acct).dmg + ((p.acct.inv.espada || 0) > 0 ? 12 + 4 * upOf(p.acct, 'espada') : 0);
 
 function send(ws, obj) { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); }
 function broadcast(obj) { const s = JSON.stringify(obj); for (const ws of players.keys()) if (ws.readyState === 1) ws.send(s); }
 
 function addXp(p, n) {
-  const a = p.acct; a.xp += n;
+  const a = p.acct; n = Math.round(n * raceOf(a).xp); a.xp += n;
   while (a.xp >= a.lvl * 40) { a.xp -= a.lvl * 40; a.lvl++; p.hp = mhpOf(a); p.mp = mmpOf(a); }
   p.dirty = true;
 }
@@ -124,7 +134,7 @@ function addItem(a, item, n) { a.inv[item] = (a.inv[item] || 0) + n; if (a.inv[i
 
 function enterMap(p, id, x, y) {
   const w = worlds[id]; p.map = id; p.x = x; p.y = y; p.dx = 0; p.dy = 0; p.slowUntil = 0; p.dirty = true;
-  send(p.ws, { t: 'init', id: p.id, map: id, mapName: w.name, biome: w.biome, safe: !!w.safe, W: w.W, H: w.H, recipes: RECIPES, items: ITEMS, pp: POWER_INIT,
+  send(p.ws, { t: 'init', id: p.id, nm: p.acct.name, map: id, mapName: w.name, biome: w.biome, safe: !!w.safe, W: w.W, H: w.H, recipes: RECIPES, items: ITEMS, pp: POWER_INIT,
     city: w.buildings ? { buildings: w.buildings } : null, links: (w.links || []).map((l) => ({ side: l.side, min: l.min, max: l.max, to: worlds[l.to].name })), res: w.res.map((r) => ({ id: r.id, t: r.t, x: r.x, y: r.y })) });
 }
 const spawnIn = () => { const d = MAPDEF.lobby; return [d.spawn[0] + rnd() * 4, d.spawn[1] - 2 + rnd() * 4]; };
@@ -302,7 +312,8 @@ function handle(ws, p, msg) {
         const a = p.acct; a.trades = a.trades || {};
         const tr = a.trades[item] || (a.trades[item] = { lvl: 1, xp: 0 });
         let qty = 1 + Math.floor(rnd() * 2);
-        if (rnd() < Math.min(0.5, 0.1 * (tr.lvl - 1))) qty++;       // oficio: +10% de rendimiento extra por nivel (máx. 50%)
+        if (rnd() < Math.min(0.5, 0.1 * (tr.lvl - 1))) qty++;
+        if (rnd() < raceOf(a).gat) qty++;       // oficio: +10% de rendimiento extra por nivel (máx. 50%)
         addItem(a, item, qty); qprog(p, item === 'wood' ? 'wood' : item === 'stone' ? 'stone' : 'ore', qty);
         tr.xp++;
         if (tr.lvl < 10 && tr.xp >= tr.lvl * 5) { tr.xp -= tr.lvl * 5; tr.lvl++; send(ws, { t: 'msg', m: 'Oficio ' + item + ' sube a nivel ' + tr.lvl }); }
@@ -437,10 +448,15 @@ function handle(ws, p, msg) {
 // ---------- sesión: inicio de sesión, creación de personaje y entrada al mundo ----------
 const cleanName = (n) => String(n || '').replace(/[^\p{L}\p{N}_\- ]/gu, '').trim().slice(0, 12);
 const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+const charsOf = (l) => { if (!Array.isArray(l.chars)) l.chars = l.char ? [l.name] : []; return l.chars.filter((n) => hasOwn(accounts, n) && accounts[n].char); };
+const lookOf = (r) => [r.char.power, r.char.aura, r.char.tone, r.char.cloth, r.char.race || 'humano'];
+function resetRec(r) { for (const k of Object.keys(r)) if (!['name', 'salt', 'hash', 'chars'].includes(k)) delete r[k]; Object.assign(r, { inv: {}, silver: 20, xp: 0, lvl: 1 }); }
 function makeSession(ws) {
-  let p = null, acct = null, fails = 0;
+  let p = null, login = null, fails = 0;
   const err = (m) => send(ws, { t: 'err', m });
-  const auth = () => send(ws, { t: 'auth', name: acct.name, hasChar: !!acct.char, look: acct.char || null, pp: POWER_INIT });
+  const auth = (created) => send(ws, { t: 'auth', name: login.name, pp: POWER_INIT, max: MAX_CHARS, created: created || null,
+    races: Object.fromEntries(Object.entries(RACES).map(([k, r]) => [k, { name: r.name, ico: r.ico, desc: r.desc }])),
+    chars: charsOf(login).map((n) => ({ name: n, lvl: accounts[n].lvl, look: lookOf(accounts[n]) })) });
   return (raw) => {
     let msg; try { msg = JSON.parse(raw); } catch (e) { return; }
     if (p) return handle(ws, p, msg);
@@ -452,29 +468,45 @@ function makeSession(ws) {
       const ex = hasOwn(accounts, name) ? accounts[name] : null;
       if (msg.t === 'register') {
         if (ex) return err('Ese nombre ya existe. Usa Entrar.');
-        acct = getAcct(name); acct.salt = newSalt(); acct.hash = hashPass(pass, acct.salt); save();
+        login = getAcct(name); login.salt = newSalt(); login.hash = hashPass(pass, login.salt); save();
       } else {
-        if (!ex) return err('Esa cuenta no existe. Usa Crear cuenta.');
+        if (!ex || ex.owner) return err('Esa cuenta no existe. Usa Crear cuenta.');
         if (!ex.hash) { ex.salt = newSalt(); ex.hash = hashPass(pass, ex.salt); save(); }   // cuenta antigua sin contraseña: la primera que pongas queda guardada
         else if (hashPass(pass, ex.salt) !== ex.hash) { if (++fails >= 8) ws.close(); return err('Contraseña incorrecta'); }
-        acct = getAcct(name);
+        login = getAcct(name);
       }
       return auth();
     }
-    if (!acct) return;
+    if (!login) return;
     if (msg.t === 'create') {
-      if (acct.char) return;
-      const power = String(msg.power || '');
+      const list = charsOf(login);
+      if (list.length >= MAX_CHARS) return err('Ya tienes el máximo de personajes');
+      const cname = cleanName(msg.name), power = String(msg.power || ''), race = String(msg.race || 'humano');
+      if (cname.length < 3) return err('El nombre del personaje debe tener entre 3 y 12 letras o números');
+      if (['__proto__', 'constructor', 'prototype'].includes(cname)) return err('Nombre no permitido');
       if (!hasOwn(Pw.PARTS.src, power)) return err('Elige un poder');
-      acct.char = { power, aura: msg.aura ? 1 : 0, tone: Math.max(0, Math.min(3, Math.floor(+msg.tone) || 0)), cloth: Math.max(0, Math.min(4, Math.floor(+msg.cloth) || 0)) };
-      if (!(acct.powers && acct.powers.length)) {          // el poder elegido es tu primer poder, gratis y equipado
-        const c = Pw.cleanPower({ src: power, shape: 'proyectil', eff: 'dano', mods: {} });
-        c.name = Pw.defaultPowerName(c); acct.powers = [c]; acct.bar = [0, null, null];
-      }
+      if (!hasOwn(RACES, race)) return err('Elige una raza');
+      const reuse = cname === login.name && !login.char && !list.length;   // el primer personaje puede llevar el nombre de la cuenta
+      if (hasOwn(accounts, cname) && !reuse) return err('Ese nombre de personaje ya está en uso');
+      const rec = reuse ? login : getAcct(cname);
+      if (!reuse) rec.owner = login.name;
+      rec.char = { power, race, aura: msg.aura ? 1 : 0, tone: Math.max(0, Math.min(3, Math.floor(+msg.tone) || 0)), cloth: Math.max(0, Math.min(4, Math.floor(+msg.cloth) || 0)) };
+      const c = Pw.cleanPower({ src: power, shape: 'proyectil', eff: 'dano', mods: {} });   // el poder elegido es tu primer poder, gratis y equipado
+      c.name = Pw.defaultPowerName(c); rec.powers = [c]; rec.bar = [0, null, null];
+      login.chars = list.concat(cname);
+      save(); return auth(cname);
+    }
+    if (msg.t === 'delchar') {
+      const cname = String(msg.name || ''), list = charsOf(login);
+      if (!list.includes(cname)) return;
+      if (accounts[cname] === login) resetRec(login); else delete accounts[cname];
+      login.chars = list.filter((n) => n !== cname);
       save(); return auth();
     }
     if (msg.t === 'join') {
-      if (!acct.char) return;
+      const cname = String(msg.name || '');
+      if (!charsOf(login).includes(cname)) return;
+      const acct = accounts[cname];
       for (const [ows, op] of players) if (op.acct === acct) { send(ows, { t: 'err', m: 'Sesión iniciada en otro lugar' }); players.delete(ows); ows.close(); }
       const s = spawnIn();
       p = { ws, id: newId(), acct, map: 'lobby', x: s[0], y: s[1], hp: mhpOf(acct), mp: mmpOf(acct), dx: 0, dy: 0, fx: 1, fy: 0,
@@ -512,7 +544,7 @@ setInterval(() => {
 
   for (const p of players.values()) {
     if (now - p.lastIn > 1000) { p.dx = 0; p.dy = 0; }
-    const wd = worlds[p.map], sp = SPEED * (now < (p.slowUntil || 0) ? (p.slowMul || 0.6) : 1);
+    const wd = worlds[p.map], sp = SPEED * raceOf(p.acct).spd * (now < (p.slowUntil || 0) ? (p.slowMul || 0.6) : 1);
     const nx = clamp(p.x + p.dx * sp * dt, 0.5, wd.W - 0.5);
     if (!blockedAt(wd, nx, p.y)) p.x = nx;
     const ny = clamp(p.y + p.dy * sp * dt, 0.5, wd.H - 0.5);
@@ -568,7 +600,7 @@ setInterval(() => {
     for (const e of events) (evs[e.w] = evs[e.w] || []).push(e);
     events = [];
     const AOI = 45, near = (e, p) => Math.abs(e.x - p.x) <= AOI && Math.abs(e.y - p.y) <= AOI;   // área de interés de cada jugador
-    const pv = (p) => ({ id: p.id, n: p.acct.name, x: +p.x.toFixed(2), y: +p.y.toFixed(2), hp: Math.round(p.hp), mh: mhpOf(p.acct), l: p.acct.lvl, sw: p.acct.inv.espada > 0 ? 1 : 0, fl: flagsOf(p, now), lk: p.acct.char ? [p.acct.char.power, p.acct.char.aura, p.acct.char.tone, p.acct.char.cloth] : null });
+    const pv = (p) => ({ id: p.id, n: p.acct.name, x: +p.x.toFixed(2), y: +p.y.toFixed(2), hp: Math.round(p.hp), mh: mhpOf(p.acct), l: p.acct.lvl, sw: p.acct.inv.espada > 0 ? 1 : 0, fl: flagsOf(p, now), lk: p.acct.char ? [p.acct.char.power, p.acct.char.aura, p.acct.char.tone, p.acct.char.cloth, p.acct.char.race || 'humano'] : null });
     const snaps = {};
     for (const id in byMap) {
       const w = worlds[id];

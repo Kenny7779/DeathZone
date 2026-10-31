@@ -6,6 +6,14 @@
   #login{position:fixed;inset:0;display:flex;flex-direction:column;gap:12px;align-items:center;justify-content:center;background:#10141aee;z-index:20}
   #login h1{margin:0;font-size:28px;letter-spacing:1px}
   #login input[type=password]{font-size:18px;padding:12px 14px;border-radius:10px;border:1px solid #3a4658;background:#1a212b;color:#fff;width:240px;text-align:center;user-select:text;-webkit-user-select:text}
+  #chars{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:#10141af2;z-index:21;padding:16px}
+  #chars .row2{display:flex;gap:8px;width:min(340px,100%)}
+  #chars .row2 button.sel{flex:1;text-align:left;padding:10px 12px}
+  #raceGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:min(340px,100%)}
+  #raceGrid button{text-align:left;padding:8px 10px;border-width:2px;font-size:13px}
+  #raceGrid button small{display:block;opacity:.75;font-size:11px}
+  #raceGrid button.on{background:#3b5278}
+  #cname{font-size:16px;padding:10px 12px;border-radius:10px;border:1px solid #3a4658;background:#1a212b;color:#fff;width:240px;text-align:center;user-select:text;-webkit-user-select:text}
   #creator{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;gap:10px;background:#10141af2;z-index:21;overflow:auto;padding:max(16px,env(safe-area-inset-top)) 16px 24px;touch-action:pan-y}
   #creator>*{flex-shrink:0}
   #prevc{position:static;inset:auto;width:170px;height:200px;border-radius:14px;background:linear-gradient(#1d2733,#2b3a2e);border:1px solid #3a4658}
@@ -79,15 +87,21 @@
   <button id="bReg" style="width:240px;background:#1f2a3a">Crear cuenta</button>
   <div id="loginErr" style="color:#ff8a8a;font-size:13px;text-align:center;max-width:260px"></div>
 </div>
+<div id="chars"><h2 style="margin:0">Tus personajes</h2><div id="charList" style="display:flex;flex-direction:column;gap:8px;width:min(340px,100%)"></div><button id="newChar" style="width:240px">+ Nuevo personaje</button><button id="logoutBtn" style="width:240px;opacity:.7">Cerrar sesión</button></div>
+
 <div id="creator">
   <h2 style="margin:0">Crea tu personaje</h2>
+  <input id="cname" maxlength="12" placeholder="Nombre del personaje" autocomplete="off">
   <canvas id="prevc" width="170" height="200"></canvas>
+  <div style="font-size:13px;opacity:.8">Elige tu raza</div>
+  <div id="raceGrid"></div>
   <div style="font-size:13px;opacity:.8">Elige tu poder inicial (será tu primer poder, gratis)</div>
   <div id="powGrid"></div>
   <label class="chk"><input type="checkbox" id="auraChk" checked> El poder cambia mi aspecto (aura, cabello y ojos del color del elemento)</label>
   <div class="sw"><span>Piel</span><span id="toneSw"></span></div>
   <div class="sw"><span>Ropa</span><span id="clothSw"></span></div>
   <button id="mkChar" style="width:240px;background:#3b6b3b">Crear personaje</button>
+  <button id="backChars" style="width:240px;opacity:.7;display:none">Volver</button>
   <div id="cErr" style="color:#ff8a8a;font-size:13px;text-align:center"></div>
 </div>
 
@@ -230,6 +244,15 @@ module.exports = { TREE, FORJA_REFUND, PARTS, MOD_MAX, MOD_COST, POWER_MIN_CD, P
 return module.exports; })();
 const TICK = 50;             // 20 Hz
 const SPEED = 4.5;           // tiles/seg
+// Razas: cada una da pequeñas ventajas y desventajas (hp/mp: vida y energía base, dmg: daño base, spd: velocidad, xp: experiencia, gat: prob. de recolección extra).
+const RACES = {
+  humano: { name: 'Humano', ico: '🧑', desc: '+15% de experiencia', hp: 0, mp: 0, dmg: 0, spd: 1, xp: 1.15, gat: 0 },
+  elfo:   { name: 'Elfo', ico: '🧝', desc: '+25 energía · +6% velocidad', hp: 0, mp: 25, dmg: 0, spd: 1.06, xp: 1, gat: 0 },
+  enano:  { name: 'Enano', ico: '🧔', desc: '+25 vida · +15% recolección extra', hp: 25, mp: 0, dmg: 0, spd: 1, xp: 1, gat: 0.15 },
+  orco:   { name: 'Orco', ico: '👹', desc: '+4 daño · +15 vida · −15 energía', hp: 15, mp: -15, dmg: 4, spd: 1, xp: 1, gat: 0 },
+  felino: { name: 'Felino', ico: '🐱', desc: '+12% velocidad · −10 vida', hp: -10, mp: 0, dmg: 0, spd: 1.12, xp: 1, gat: 0 },
+};
+const MAX_CHARS = 3;
 // Mapas. La ciudad es el lobby (zona principal, segura): ahí apareces y reapareces. Su puerta lleva al mundo de enemigos
 // (zona de la muerte). Al llegar al borde de un mapa pasas al mapa vecino (links). Los edificios abren su menú al acercarte.
 const MAPDEF = {
@@ -311,17 +334,18 @@ const players = new Map(); // ws -> player
 let events = [];
 
 // ---------- jugador ----------
-const mhpOf = (a) => 100 + (a.lvl - 1) * 10;
-const mmpOf = (a) => 50 + (a.lvl - 1) * 5;
+const raceOf = (a) => { const r = a.char && a.char.race; return (typeof r === 'string' && Object.prototype.hasOwnProperty.call(RACES, r)) ? RACES[r] : RACES.humano; };
+const mhpOf = (a) => Math.max(40, 100 + (a.lvl - 1) * 10 + raceOf(a).hp);
+const mmpOf = (a) => Math.max(20, 50 + (a.lvl - 1) * 5 + raceOf(a).mp);
 const UP_MAX = 5, upOf = (a, k) => (a.up && a.up[k]) || 0;
 const upCost = (n) => ({ nucleo: n + 1, silver: 30 * (n + 1) });      // mejorar de +n a +n+1
-const baseDmg = (p) => 10 + p.acct.lvl * 2 + ((p.acct.inv.espada || 0) > 0 ? 12 + 4 * upOf(p.acct, 'espada') : 0);
+const baseDmg = (p) => 10 + p.acct.lvl * 2 + raceOf(p.acct).dmg + ((p.acct.inv.espada || 0) > 0 ? 12 + 4 * upOf(p.acct, 'espada') : 0);
 
 function send(ws, obj) { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); }
 function broadcast(obj) { const s = JSON.stringify(obj); for (const ws of players.keys()) if (ws.readyState === 1) ws.send(s); }
 
 function addXp(p, n) {
-  const a = p.acct; a.xp += n;
+  const a = p.acct; n = Math.round(n * raceOf(a).xp); a.xp += n;
   while (a.xp >= a.lvl * 40) { a.xp -= a.lvl * 40; a.lvl++; p.hp = mhpOf(a); p.mp = mmpOf(a); }
   p.dirty = true;
 }
@@ -329,7 +353,7 @@ function addItem(a, item, n) { a.inv[item] = (a.inv[item] || 0) + n; if (a.inv[i
 
 function enterMap(p, id, x, y) {
   const w = worlds[id]; p.map = id; p.x = x; p.y = y; p.dx = 0; p.dy = 0; p.slowUntil = 0; p.dirty = true;
-  send(p.ws, { t: 'init', id: p.id, map: id, mapName: w.name, biome: w.biome, safe: !!w.safe, W: w.W, H: w.H, recipes: RECIPES, items: ITEMS, pp: POWER_INIT,
+  send(p.ws, { t: 'init', id: p.id, nm: p.acct.name, map: id, mapName: w.name, biome: w.biome, safe: !!w.safe, W: w.W, H: w.H, recipes: RECIPES, items: ITEMS, pp: POWER_INIT,
     city: w.buildings ? { buildings: w.buildings } : null, links: (w.links || []).map((l) => ({ side: l.side, min: l.min, max: l.max, to: worlds[l.to].name })), res: w.res.map((r) => ({ id: r.id, t: r.t, x: r.x, y: r.y })) });
 }
 const spawnIn = () => { const d = MAPDEF.lobby; return [d.spawn[0] + rnd() * 4, d.spawn[1] - 2 + rnd() * 4]; };
@@ -507,7 +531,8 @@ function handle(ws, p, msg) {
         const a = p.acct; a.trades = a.trades || {};
         const tr = a.trades[item] || (a.trades[item] = { lvl: 1, xp: 0 });
         let qty = 1 + Math.floor(rnd() * 2);
-        if (rnd() < Math.min(0.5, 0.1 * (tr.lvl - 1))) qty++;       // oficio: +10% de rendimiento extra por nivel (máx. 50%)
+        if (rnd() < Math.min(0.5, 0.1 * (tr.lvl - 1))) qty++;
+        if (rnd() < raceOf(a).gat) qty++;       // oficio: +10% de rendimiento extra por nivel (máx. 50%)
         addItem(a, item, qty); qprog(p, item === 'wood' ? 'wood' : item === 'stone' ? 'stone' : 'ore', qty);
         tr.xp++;
         if (tr.lvl < 10 && tr.xp >= tr.lvl * 5) { tr.xp -= tr.lvl * 5; tr.lvl++; send(ws, { t: 'msg', m: 'Oficio ' + item + ' sube a nivel ' + tr.lvl }); }
@@ -642,10 +667,15 @@ function handle(ws, p, msg) {
 // ---------- sesión: inicio de sesión, creación de personaje y entrada al mundo ----------
 const cleanName = (n) => String(n || '').replace(/[^\p{L}\p{N}_\- ]/gu, '').trim().slice(0, 12);
 const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+const charsOf = (l) => { if (!Array.isArray(l.chars)) l.chars = l.char ? [l.name] : []; return l.chars.filter((n) => hasOwn(accounts, n) && accounts[n].char); };
+const lookOf = (r) => [r.char.power, r.char.aura, r.char.tone, r.char.cloth, r.char.race || 'humano'];
+function resetRec(r) { for (const k of Object.keys(r)) if (!['name', 'salt', 'hash', 'chars'].includes(k)) delete r[k]; Object.assign(r, { inv: {}, silver: 20, xp: 0, lvl: 1 }); }
 function makeSession(ws) {
-  let p = null, acct = null, fails = 0;
+  let p = null, login = null, fails = 0;
   const err = (m) => send(ws, { t: 'err', m });
-  const auth = () => send(ws, { t: 'auth', name: acct.name, hasChar: !!acct.char, look: acct.char || null, pp: POWER_INIT });
+  const auth = (created) => send(ws, { t: 'auth', name: login.name, pp: POWER_INIT, max: MAX_CHARS, created: created || null,
+    races: Object.fromEntries(Object.entries(RACES).map(([k, r]) => [k, { name: r.name, ico: r.ico, desc: r.desc }])),
+    chars: charsOf(login).map((n) => ({ name: n, lvl: accounts[n].lvl, look: lookOf(accounts[n]) })) });
   return (raw) => {
     let msg; try { msg = JSON.parse(raw); } catch (e) { return; }
     if (p) return handle(ws, p, msg);
@@ -657,29 +687,45 @@ function makeSession(ws) {
       const ex = hasOwn(accounts, name) ? accounts[name] : null;
       if (msg.t === 'register') {
         if (ex) return err('Ese nombre ya existe. Usa Entrar.');
-        acct = getAcct(name); acct.salt = newSalt(); acct.hash = hashPass(pass, acct.salt); save();
+        login = getAcct(name); login.salt = newSalt(); login.hash = hashPass(pass, login.salt); save();
       } else {
-        if (!ex) return err('Esa cuenta no existe. Usa Crear cuenta.');
+        if (!ex || ex.owner) return err('Esa cuenta no existe. Usa Crear cuenta.');
         if (!ex.hash) { ex.salt = newSalt(); ex.hash = hashPass(pass, ex.salt); save(); }   // cuenta antigua sin contraseña: la primera que pongas queda guardada
         else if (hashPass(pass, ex.salt) !== ex.hash) { if (++fails >= 8) ws.close(); return err('Contraseña incorrecta'); }
-        acct = getAcct(name);
+        login = getAcct(name);
       }
       return auth();
     }
-    if (!acct) return;
+    if (!login) return;
     if (msg.t === 'create') {
-      if (acct.char) return;
-      const power = String(msg.power || '');
+      const list = charsOf(login);
+      if (list.length >= MAX_CHARS) return err('Ya tienes el máximo de personajes');
+      const cname = cleanName(msg.name), power = String(msg.power || ''), race = String(msg.race || 'humano');
+      if (cname.length < 3) return err('El nombre del personaje debe tener entre 3 y 12 letras o números');
+      if (['__proto__', 'constructor', 'prototype'].includes(cname)) return err('Nombre no permitido');
       if (!hasOwn(Pw.PARTS.src, power)) return err('Elige un poder');
-      acct.char = { power, aura: msg.aura ? 1 : 0, tone: Math.max(0, Math.min(3, Math.floor(+msg.tone) || 0)), cloth: Math.max(0, Math.min(4, Math.floor(+msg.cloth) || 0)) };
-      if (!(acct.powers && acct.powers.length)) {          // el poder elegido es tu primer poder, gratis y equipado
-        const c = Pw.cleanPower({ src: power, shape: 'proyectil', eff: 'dano', mods: {} });
-        c.name = Pw.defaultPowerName(c); acct.powers = [c]; acct.bar = [0, null, null];
-      }
+      if (!hasOwn(RACES, race)) return err('Elige una raza');
+      const reuse = cname === login.name && !login.char && !list.length;   // el primer personaje puede llevar el nombre de la cuenta
+      if (hasOwn(accounts, cname) && !reuse) return err('Ese nombre de personaje ya está en uso');
+      const rec = reuse ? login : getAcct(cname);
+      if (!reuse) rec.owner = login.name;
+      rec.char = { power, race, aura: msg.aura ? 1 : 0, tone: Math.max(0, Math.min(3, Math.floor(+msg.tone) || 0)), cloth: Math.max(0, Math.min(4, Math.floor(+msg.cloth) || 0)) };
+      const c = Pw.cleanPower({ src: power, shape: 'proyectil', eff: 'dano', mods: {} });   // el poder elegido es tu primer poder, gratis y equipado
+      c.name = Pw.defaultPowerName(c); rec.powers = [c]; rec.bar = [0, null, null];
+      login.chars = list.concat(cname);
+      save(); return auth(cname);
+    }
+    if (msg.t === 'delchar') {
+      const cname = String(msg.name || ''), list = charsOf(login);
+      if (!list.includes(cname)) return;
+      if (accounts[cname] === login) resetRec(login); else delete accounts[cname];
+      login.chars = list.filter((n) => n !== cname);
       save(); return auth();
     }
     if (msg.t === 'join') {
-      if (!acct.char) return;
+      const cname = String(msg.name || '');
+      if (!charsOf(login).includes(cname)) return;
+      const acct = accounts[cname];
       for (const [ows, op] of players) if (op.acct === acct) { send(ows, { t: 'err', m: 'Sesión iniciada en otro lugar' }); players.delete(ows); ows.close(); }
       const s = spawnIn();
       p = { ws, id: newId(), acct, map: 'lobby', x: s[0], y: s[1], hp: mhpOf(acct), mp: mmpOf(acct), dx: 0, dy: 0, fx: 1, fy: 0,
@@ -701,7 +747,7 @@ setInterval(() => {
 
   for (const p of players.values()) {
     if (now - p.lastIn > 1000) { p.dx = 0; p.dy = 0; }
-    const wd = worlds[p.map], sp = SPEED * (now < (p.slowUntil || 0) ? (p.slowMul || 0.6) : 1);
+    const wd = worlds[p.map], sp = SPEED * raceOf(p.acct).spd * (now < (p.slowUntil || 0) ? (p.slowMul || 0.6) : 1);
     const nx = clamp(p.x + p.dx * sp * dt, 0.5, wd.W - 0.5);
     if (!blockedAt(wd, nx, p.y)) p.x = nx;
     const ny = clamp(p.y + p.dy * sp * dt, 0.5, wd.H - 0.5);
@@ -757,7 +803,7 @@ setInterval(() => {
     for (const e of events) (evs[e.w] = evs[e.w] || []).push(e);
     events = [];
     const AOI = 45, near = (e, p) => Math.abs(e.x - p.x) <= AOI && Math.abs(e.y - p.y) <= AOI;   // área de interés de cada jugador
-    const pv = (p) => ({ id: p.id, n: p.acct.name, x: +p.x.toFixed(2), y: +p.y.toFixed(2), hp: Math.round(p.hp), mh: mhpOf(p.acct), l: p.acct.lvl, sw: p.acct.inv.espada > 0 ? 1 : 0, fl: flagsOf(p, now), lk: p.acct.char ? [p.acct.char.power, p.acct.char.aura, p.acct.char.tone, p.acct.char.cloth] : null });
+    const pv = (p) => ({ id: p.id, n: p.acct.name, x: +p.x.toFixed(2), y: +p.y.toFixed(2), hp: Math.round(p.hp), mh: mhpOf(p.acct), l: p.acct.lvl, sw: p.acct.inv.espada > 0 ? 1 : 0, fl: flagsOf(p, now), lk: p.acct.char ? [p.acct.char.power, p.acct.char.aura, p.acct.char.tone, p.acct.char.cloth, p.acct.char.race || 'humano'] : null });
     const snaps = {};
     for (const id in byMap) {
       const w = worlds[id];
@@ -830,7 +876,7 @@ const iso = (x, y) => ({ x: (x - y) * TW / 2, y: (x + y) * TH / 2 });
 function toast(m, t = 2200) { const e = document.getElementById('toast'); e.textContent = m; e.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(() => e.style.display = 'none', t); }
 
 // ================== Conexión ==================
-function show(id) { for (const k of ['login', 'creator']) document.getElementById(k).style.display = k === id ? 'flex' : 'none'; }
+function show(id) { for (const k of ['login', 'creator', 'chars']) document.getElementById(k).style.display = k === id ? 'flex' : 'none'; }
 function connect(then) {
   if (ws && ws.readyState === 1) return then();
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -845,10 +891,10 @@ const send = (o) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o));
 function onMsg(m) {
   switch (m.t) {
     case 'init':
-      myId = m.id; W = m.W; H = m.H; mapName = m.mapName; biome = m.biome; safe = m.safe; links = m.links || []; recipes = m.recipes; items = m.items; resList = m.res; pp = m.pp;
+      myId = m.id; window.myName = m.nm; W = m.W; H = m.H; mapName = m.mapName; biome = m.biome; safe = m.safe; links = m.links || []; recipes = m.recipes; items = m.items; resList = m.res; pp = m.pp;
       players.clear(); mobs.clear(); bags = []; fx = []; deadRes = new Set();
       city = m.city; document.getElementById('login').style.display = 'none'; document.getElementById('creator').style.display = 'none'; break;
-    case 'auth': pp = m.pp; window.myName = m.name; if (m.hasChar) send({ t: 'join' }); else showCreator(); break;
+    case 'auth': pp = m.pp; races = m.races; chars = m.chars; maxChars = m.max; if (m.created) send({ t: 'join', name: m.created }); else if (chars.length) showChars(); else showCreator(); break;
     case 'err':
       if (document.getElementById('creator').style.display === 'flex') document.getElementById('cErr').textContent = m.m;
       else { document.getElementById('loginErr').textContent = m.m; show('login'); }
@@ -1150,9 +1196,34 @@ document.getElementById('upass').addEventListener('keydown', (e) => { if (e.key 
 // ================== Creación de personaje ==================
 const TONES = ['#f1d3b0', '#e0b48a', '#b98660', '#7a5236'], CLOTHS = ['#3f7fe0', '#d64545', '#3aa64c', '#8a5cd6', '#d9b13b'];
 const POW_DESC = { fuego: 'Más daño directo', hielo: 'Ralentiza a quien golpea', tierra: 'Golpe pesado que empuja', rayo: 'Recarga rápida', sangre: 'Cuesta vida, poca energía', gravedad: 'Empuja a los enemigos' };
-let cr = { power: 'fuego', aura: true, tone: 0, cloth: 0 };
+let cr = { power: 'fuego', aura: true, tone: 0, cloth: 0, race: 'humano' }, races = {}, chars = [], maxChars = 3;
+function showChars() {
+  show('chars');
+  const l = document.getElementById('charList'); l.innerHTML = '';
+  for (const ch of chars) {
+    const row = document.createElement('div'); row.className = 'row2';
+    const b = document.createElement('button'); b.className = 'sel';
+    const rc = races[ch.look[4]] || { ico: '🧑', name: '' };
+    b.innerHTML = `${rc.ico} <b>${esc(ch.name)}</b> <small>· ${rc.name} · ${pp.parts.src[ch.look[0]].ico} · Nv ${ch.lvl}</small>`;
+    b.onclick = () => send({ t: 'join', name: ch.name });
+    const d = document.createElement('button'); d.textContent = '🗑'; d.style.width = '46px';
+    d.onclick = () => { if (confirm('¿Borrar a ' + ch.name + '? Se pierde todo su progreso.')) send({ t: 'delchar', name: ch.name }); };
+    row.append(b, d); l.appendChild(row);
+  }
+  document.getElementById('newChar').style.display = chars.length < maxChars ? '' : 'none';
+}
+document.getElementById('newChar').onclick = () => showCreator();
+document.getElementById('backChars').onclick = () => showChars();
+document.getElementById('logoutBtn').onclick = () => { if (ws) ws.close(); show('login'); document.getElementById('loginErr').textContent = ''; };
 function showCreator() {
   show('creator');
+  document.getElementById('backChars').style.display = chars.length ? '' : 'none';
+  document.getElementById('cErr').textContent = '';
+  const rg = document.getElementById('raceGrid'); rg.innerHTML = '';
+  for (const k of Object.keys(races)) {
+    const b = document.createElement('button'); b.dataset.r = k; b.innerHTML = races[k].ico + ' <b>' + races[k].name + '</b><small>' + races[k].desc + '</small>';
+    b.onclick = () => { cr.race = k; syncCreator(); }; rg.appendChild(b);
+  }
   const grid = document.getElementById('powGrid'); grid.innerHTML = '';
   for (const k of Object.keys(pp.parts.src)) {
     const b = document.createElement('button'); b.dataset.p = k; b.style.borderColor = pp.parts.src[k].color;
@@ -1164,19 +1235,20 @@ function showCreator() {
   syncCreator(); requestAnimationFrame(creatorFrame);
 }
 function syncCreator() {
+  document.querySelectorAll('#raceGrid button').forEach((b) => b.classList.toggle('on', b.dataset.r === cr.race));
   document.querySelectorAll('#powGrid button').forEach((b) => b.classList.toggle('on', b.dataset.p === cr.power));
   document.querySelectorAll('#toneSw button').forEach((b, i) => b.classList.toggle('on', i === cr.tone));
   document.querySelectorAll('#clothSw button').forEach((b, i) => b.classList.toggle('on', i === cr.cloth));
 }
 document.getElementById('auraChk').onchange = (e) => { cr.aura = e.target.checked; };
-document.getElementById('mkChar').onclick = () => { document.getElementById('cErr').textContent = ''; send({ t: 'create', power: cr.power, aura: cr.aura, tone: cr.tone, cloth: cr.cloth }); };
+document.getElementById('mkChar').onclick = () => { document.getElementById('cErr').textContent = ''; send({ t: 'create', name: document.getElementById('cname').value, race: cr.race, power: cr.power, aura: cr.aura, tone: cr.tone, cloth: cr.cloth }); };
 function creatorFrame(t) {
   if (document.getElementById('creator').style.display !== 'flex') return;
   const c = document.getElementById('prevc').getContext('2d');
   c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, 170, 200);
   c.setTransform(2.6, 0, 0, 2.6, 0, 0);
   c.fillStyle = '#0006'; c.beginPath(); c.ellipse(32, 66, 14, 6, 0, 0, 7); c.fill();
-  drawBody(c, 32, 64, { pw: cr.power, au: cr.aura ? 1 : 0, tn: cr.tone, cl: cr.cloth }, t, 1, 'x');
+  drawBody(c, 32, 64, { pw: cr.power, au: cr.aura ? 1 : 0, tn: cr.tone, cl: cr.cloth, rc: cr.race }, t, 1, 'x');
   requestAnimationFrame(creatorFrame);
 }
 
@@ -1191,7 +1263,7 @@ function bar(sx, sy, w, p, col) { ctx.fillStyle = '#000a'; ctx.fillRect(sx - w /
 function drawBody(c, x, y, look, t, sw, fallbackName) {
   const col = look && look.au ? srcCol(look.pw) : null;
   const cloth = look ? CLOTHS[look.cl % CLOTHS.length] : hashColor(fallbackName);
-  const tone = look ? TONES[look.tn % TONES.length] : '#f1d3b0';
+  let tone = look ? TONES[look.tn % TONES.length] : '#f1d3b0';
   if (col) {                                   // el poder cambia el aspecto: aura con chispas, cabello y ojos del elemento
     const g = c.createRadialGradient(x, y - 18, 4, x, y - 18, 34);
     g.addColorStop(0, col + '66'); g.addColorStop(1, col + '00');
@@ -1199,10 +1271,19 @@ function drawBody(c, x, y, look, t, sw, fallbackName) {
     c.fillStyle = col;
     for (let i = 0; i < 4; i++) { const a = t / 600 + i * 1.57; c.fillRect(x + Math.cos(a) * 18 - 1, y - 20 + Math.sin(a) * 10 - 1 - ((t / 40 + i * 9) % 12), 3, 3); }
   }
+  const rc = look && look.rc, hair = col || '#4a3321';
+  if (rc === 'orco') tone = '#7fa86a';
+  const ox = x, oy = y; c.save(); c.translate(x, y); const sx = rc === 'orco' ? 1.15 : 1, sy = rc === 'enano' ? 0.82 : 1; c.scale(sx, sy); x = 0; y = 0;
+  if (rc === 'felino') { c.strokeStyle = hair; c.lineWidth = 4; c.beginPath(); c.moveTo(-6, -8); c.quadraticCurveTo(-20, -6 + Math.sin(t / 250) * 3, -18, -22); c.stroke(); }   // cola
   c.fillStyle = cloth; c.fillRect(x - 8, y - 28, 16, 24);
   c.fillStyle = tone; c.beginPath(); c.arc(x, y - 34, 8, 0, 7); c.fill();
-  c.fillStyle = col || '#4a3321'; c.beginPath(); c.arc(x, y - 36, 8.5, Math.PI, 0); c.fill(); c.fillRect(x - 8.5, y - 37, 17, 3);
+  if (rc === 'elfo') { c.beginPath(); c.moveTo(x - 8, y - 36); c.lineTo(x - 16, y - 40); c.lineTo(x - 8, y - 31); c.fill(); c.beginPath(); c.moveTo(x + 8, y - 36); c.lineTo(x + 16, y - 40); c.lineTo(x + 8, y - 31); c.fill(); }
+  if (rc === 'felino') { c.fillStyle = hair; c.beginPath(); c.moveTo(x - 8, y - 38); c.lineTo(x - 7, y - 48); c.lineTo(x - 1, y - 41); c.fill(); c.beginPath(); c.moveTo(x + 8, y - 38); c.lineTo(x + 7, y - 48); c.lineTo(x + 1, y - 41); c.fill(); }
+  c.fillStyle = hair; c.beginPath(); c.arc(x, y - 36, 8.5, Math.PI, 0); c.fill(); c.fillRect(x - 8.5, y - 37, 17, 3);
   c.fillStyle = col ? '#fff' : '#222'; c.fillRect(x - 4, y - 34, 2, 2); c.fillRect(x + 2, y - 34, 2, 2);
+  if (rc === 'orco') { c.fillStyle = '#f4f1e6'; c.fillRect(x - 5, y - 30, 2, 4); c.fillRect(x + 3, y - 30, 2, 4); c.fillStyle = '#3d6b3a'; c.fillRect(x - 8, y - 29, 16, 2); }
+  if (rc === 'enano') { c.fillStyle = '#a66b3a'; c.beginPath(); c.moveTo(x - 7, y - 31); c.lineTo(x + 7, y - 31); c.lineTo(x, y - 17); c.fill(); }
+  c.restore(); x = ox; y = oy;
   if (sw) { c.strokeStyle = '#dfe6ee'; c.lineWidth = 3; c.beginPath(); c.moveTo(x + 10, y - 16); c.lineTo(x + 20, y - 36); c.stroke(); }
 }
 function drawBld(b) {
@@ -1374,7 +1455,7 @@ function drawPlayer(o, t) {
   const p = iso(o.rx, o.ry), mine = o.id === myId;
   ctx.fillStyle = '#0005'; ctx.beginPath(); ctx.ellipse(p.x, p.y, 14, 7, 0, 0, 7); ctx.fill();
   if (mine) { ctx.strokeStyle = '#fff8'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(p.x, p.y, 17, 9, 0, 0, 7); ctx.stroke(); }
-  drawBody(ctx, p.x, p.y, o.lk ? { pw: o.lk[0], au: o.lk[1], tn: o.lk[2], cl: o.lk[3] } : null, t, o.sw, o.n);
+  drawBody(ctx, p.x, p.y, o.lk ? { pw: o.lk[0], au: o.lk[1], tn: o.lk[2], cl: o.lk[3], rc: o.lk[4] } : null, t, o.sw, o.n);
   ctx.font = '12px system-ui'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000';
   const label = o.n + ' [' + o.l + ']'; ctx.strokeText(label, p.x, p.y - 56); ctx.fillStyle = mine ? '#ffe27a' : '#fff'; ctx.fillText(label, p.x, p.y - 56);
   bar(p.x, p.y - 51, 34, o.hp / o.mh, '#4cc35a'); flagIcons(p.x, p.y - 62, o.fl);
