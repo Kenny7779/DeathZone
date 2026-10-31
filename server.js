@@ -78,6 +78,9 @@ function getAcct(name) {
 }
 
 // ---------- mundo ----------
+// Tipos de monstruo: normal, rápido (frágil), bruto (lento y duro) y jefe (uno por zona peligrosa).
+const KINDS = { nor: { hp: 1, dmg: 1, sp: 3, rew: 1, ag: 7 }, rap: { hp: 0.6, dmg: 0.8, sp: 5, rew: 1.3, ag: 8 },
+  bru: { hp: 2.2, dmg: 1.6, sp: 2, rew: 2, ag: 6 }, jef: { hp: 14, dmg: 2.2, sp: 2.6, rew: 10, ag: 10 } };
 const worlds = {};
 for (const id in MAPDEF) {
   const d = MAPDEF[id], w = worlds[id] = { ...d, id, res: [], mobs: [], bags: [] };
@@ -90,7 +93,12 @@ for (const id in MAPDEF) {
   put('tree', d.tree || 0); put('rock', d.rock || 0); put('ore', d.ore || 0);
   for (let i = 0; i < (d.mobs || 0); i++) {   // lejos de los bordes (zonas de llegada)
     const x = 9 + rnd() * (w.W - 18), y = 9 + rnd() * (w.H - 18);
-    w.mobs.push({ id: newId(), w: id, x, y, hx: x, hy: y, hp: d.hp, mhp: d.hp, dmg: d.dmg, rew: d.rew, core: d.core, alive: true, respawn: 0, cd: 0 });
+    const r = rnd(), k = r < 0.6 ? 'nor' : r < 0.85 ? 'rap' : 'bru', K = KINDS[k], hp = Math.round(d.hp * K.hp);
+    w.mobs.push({ id: newId(), w: id, k, sp: K.sp, ag: K.ag, x, y, hx: x, hy: y, hp, mhp: hp, dmg: Math.round(d.dmg * K.dmg), rew: d.rew * K.rew, core: d.core, rt: 15000, alive: true, respawn: 0, cd: 0 });
+  }
+  if (!d.safe) {   // jefe en el centro del mapa
+    const K = KINDS.jef, hp = Math.round(d.hp * K.hp), x = w.W / 2, y = w.H / 2;
+    w.mobs.push({ id: newId(), w: id, k: 'jef', sp: K.sp, ag: K.ag, x, y, hx: x, hy: y, hp, mhp: hp, dmg: Math.round(d.dmg * K.dmg), rew: d.rew * K.rew, core: 1, rt: 120000, alive: true, respawn: 0, cd: 0, sc: 0 });
   }
 }
 const players = new Map(); // ws -> player
@@ -143,14 +151,20 @@ function hurtPlayer(p, amt, killer) {
   events.push({ w: p.map, t: 'dmg', x: p.x, y: p.y, v: amt });
   if (p.hp <= 0) killPlayer(p, killer);
 }
-function hurtMob(m, amt, killer) {
+function hurtMob(m, amt, killer, crit) {
   m.hp -= amt;
-  events.push({ w: m.w, t: 'dmg', x: m.x, y: m.y, v: amt });
+  events.push({ w: m.w, t: 'dmg', x: m.x, y: m.y, v: amt, c: crit ? 1 : 0 });
   if (m.hp <= 0) {
-    m.alive = false; m.respawn = Date.now() + 15000;
-    const s = Math.round((5 + Math.floor(rnd() * 11)) * m.rew);
-    killer.acct.silver += s; addXp(killer, Math.round(8 * m.rew)); killer.dirty = true;
-    if (rnd() < m.core) addItem(killer.acct, 'nucleo', 1); // los núcleos solo salen de los monstruos de la zona de la muerte
+    const now = Date.now();
+    m.alive = false; m.respawn = now + m.rt;
+    killer.combo = now < (killer.comboT || 0) ? killer.combo + 1 : 1; killer.comboT = now + 6000;   // racha: +10% por muerte seguida (máx. +100%)
+    const bonus = 1 + Math.min(1, (killer.combo - 1) * 0.1);
+    const s = Math.round((5 + Math.floor(rnd() * 11)) * m.rew * bonus);
+    killer.acct.silver += s; addXp(killer, Math.round(8 * m.rew * bonus)); killer.dirty = true;
+    if (rnd() < m.core) addItem(killer.acct, 'nucleo', m.k === 'jef' ? 3 : 1); // los núcleos solo salen de los monstruos fuera de la ciudad
+    if (rnd() < (m.k === 'jef' ? 1 : 0.1)) { addItem(killer.acct, 'pocion', 1); send(killer.ws, { t: 'msg', m: 'Soltó una poción' }); }
+    if (m.k === 'jef') broadcast({ t: 'msg', m: killer.acct.name + ' derrotó al jefe de ' + worlds[m.w].name + '!' });
+    else if (killer.combo >= 3 && killer.combo % 3 === 0) send(killer.ws, { t: 'msg', m: 'Racha x' + killer.combo + ' (+' + Math.round((bonus - 1) * 100) + '% botín)' });
   }
 }
 function enemiesNear(p, r) {
@@ -159,8 +173,8 @@ function enemiesNear(p, r) {
   // Sin PvP: solo los monstruos son enemigos.
   return out.sort((a, b) => a.d - b.d);
 }
-function hit(p, target, dmg) {
-  if (target.kind === 'mob') hurtMob(target.e, dmg, p); else hurtPlayer(target.e, dmg, p);
+function hit(p, target, dmg, crit) {
+  if (target.kind === 'mob') hurtMob(target.e, dmg, p, crit); else hurtPlayer(target.e, dmg, p);
 }
 
 // ---------- poderes personalizados (las reglas viven en powers.js) ----------
@@ -227,7 +241,7 @@ function handle(ws, p, msg) {
       p.cd.atk = now + 500;
       const t = enemiesNear(p, 2)[0];
       events.push({ w: p.map, t: 'swing', x: p.x, y: p.y, id: p.id });
-      if (t) hit(p, t, baseDmg(p));
+      if (t) { const crit = rnd() < 0.15; hit(p, t, Math.round(baseDmg(p) * (crit ? 1.8 : 1)), crit); }
       break;
     }
     case 'sk': { // Tajo: área
@@ -465,6 +479,7 @@ setInterval(() => {
     if (!blockedAt(wd, nx, p.y)) p.x = nx;
     const ny = clamp(p.y + p.dy * sp * dt, 0.5, wd.H - 0.5);
     if (!blockedAt(wd, p.x, ny)) p.y = ny;
+    if (p.combo && now > p.comboT) { p.combo = 0; p.dirty = true; }
     const mh = mhpOf(p.acct), mm = mmpOf(p.acct);
     if (p.hp < mh) p.hp = Math.min(mh, p.hp + 1 * dt);
     if (p.mp < mm) p.mp = Math.min(mm, p.mp + 3 * dt);
@@ -491,12 +506,15 @@ setInterval(() => {
   for (const id in worlds) {
     const w = worlds[id], here = byMap[id] || [];
     for (const m of w.mobs) {
-      if (!m.alive) { if (now >= m.respawn) { m.alive = true; m.hp = m.mhp; m.x = m.hx; m.y = m.hy; m.slowUntil = 0; } continue; }
+      if (!m.alive) { if (now >= m.respawn) { m.sc = 0; m.alive = true; m.hp = m.mhp; m.x = m.hx; m.y = m.hy; m.slowUntil = 0; } continue; }
       const mf = now < (m.slowUntil || 0) ? (m.slowMul || 0.6) : 1;
-      let target = null, td = 7;
+      let target = null, td = m.ag;
       for (const p of here) { const d = dist(m, p); if (d < td) { td = d; target = p; } }
-      if (target && dist(m, { x: m.hx, y: m.hy }) < 14) {
-        if (td > 1.2) { m.x += ((target.x - m.x) / td) * 3 * mf * dt; m.y += ((target.y - m.y) / td) * 3 * mf * dt; }
+      if (target && dist(m, { x: m.hx, y: m.hy }) < (m.k === 'jef' ? 22 : 14)) {
+        if (m.k === 'jef' && td < 3.2 && now >= m.sc) {   // pisotón del jefe: daño en área
+          m.sc = now + 5000; events.push({ w: id, t: 'slash', x: m.x, y: m.y });
+          for (const q of here.slice()) if (dist(m, q) < 3.2) hurtPlayer(q, Math.round(m.dmg * 1.5), null);
+        } else if (td > 1.2 + (m.k === 'jef' ? 0.6 : 0)) { m.x += ((target.x - m.x) / td) * m.sp * mf * dt; m.y += ((target.y - m.y) / td) * m.sp * mf * dt; }
         else if (now >= m.cd) { m.cd = now + 1000; hurtPlayer(target, m.dmg, null); }
       } else {
         const hd = dist(m, { x: m.hx, y: m.hy });
@@ -516,7 +534,7 @@ setInterval(() => {
     const snaps = {};
     for (const id in byMap) {
       const w = worlds[id];
-      snaps[id] = { p: byMap[id].map(pv), m: w.mobs.filter((m) => m.alive).map((m) => ({ id: m.id, x: +m.x.toFixed(2), y: +m.y.toFixed(2), hp: m.hp, mh: m.mhp, fl: flagsOf(m, now) })),
+      snaps[id] = { p: byMap[id].map(pv), m: w.mobs.filter((m) => m.alive).map((m) => ({ id: m.id, k: m.k, x: +m.x.toFixed(2), y: +m.y.toFixed(2), hp: m.hp, mh: m.mhp, fl: flagsOf(m, now) })),
         d: w.res.filter((r) => !r.alive).map((r) => ({ id: r.id, x: r.x, y: r.y })), b: w.bags.map((b) => ({ id: b.id, x: b.x, y: b.y })), e: evs[id] || [] };
     }
     for (const [ws, p] of players) {
@@ -529,7 +547,7 @@ setInterval(() => {
         p.dirty = false;
         send(ws, { t: 'me', inv: p.acct.inv, silver: p.acct.silver, xp: p.acct.xp, lvl: p.acct.lvl,
           hp: Math.round(p.hp), mh: mhpOf(p.acct), mp: Math.round(p.mp), mm: mmpOf(p.acct), nx: p.acct.lvl * 40,
-          tr: p.acct.trades || {}, pw: powersView(p.acct), bar: p.acct.bar || [null, null, null], pb: Pw.powerBudget(p.acct.lvl) });
+          tr: p.acct.trades || {}, pw: powersView(p.acct), bar: p.acct.bar || [null, null, null], pb: Pw.powerBudget(p.acct.lvl), cb: p.combo || 0 });
       }
     }
   }

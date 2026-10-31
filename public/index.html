@@ -469,7 +469,7 @@ function hud() {
   document.querySelector('#hp i').style.width = Math.max(0, me.hp / me.mh * 100) + '%';
   document.querySelector('#mp i').style.width = Math.max(0, me.mp / me.mm * 100) + '%';
   document.querySelector('#xp i').style.width = (me.xp / me.nx * 100) + '%';
-  document.getElementById('info').innerHTML = `Nv ${me.lvl} · HP ${me.hp}/${me.mh} · MP ${me.mp}<br>🪙 ${me.silver}`;
+  document.getElementById('info').innerHTML = `Nv ${me.lvl} · HP ${me.hp}/${me.mh} · MP ${me.mp}<br>🪙 ${me.silver}${me.cb > 1 ? ` · 🔥 Racha x${me.cb}` : ''}`;
 }
 
 // ================== Login ==================
@@ -616,9 +616,9 @@ function draw(t) {
   for (const f of fx) {
     const age = (now - f.born) / 900, p = iso(f.x, f.y);
     if (f.t === 'dmg' || f.t === 'heal') {
-      ctx.font = 'bold 16px system-ui'; ctx.textAlign = 'center'; ctx.fillStyle = f.t === 'heal' ? `rgba(120,255,140,${1 - age})` : `rgba(255,235,90,${1 - age})`;
+      ctx.font = f.c ? 'bold 24px system-ui' : 'bold 16px system-ui'; ctx.textAlign = 'center'; ctx.fillStyle = f.t === 'heal' ? `rgba(120,255,140,${1 - age})` : f.c ? `rgba(255,140,60,${1 - age})` : `rgba(255,235,90,${1 - age})`;
       ctx.strokeStyle = `rgba(0,0,0,${1 - age})`; ctx.lineWidth = 3;
-      const txt = (f.t === 'heal' ? '+' : '-') + f.v; ctx.strokeText(txt, p.x, p.y - 40 - age * 30); ctx.fillText(txt, p.x, p.y - 40 - age * 30);
+      const txt = (f.t === 'heal' ? '+' : '-') + f.v + (f.c ? '!' : ''); ctx.strokeText(txt, p.x, p.y - 40 - age * 30); ctx.fillText(txt, p.x, p.y - 40 - age * 30);
     } else if (f.t === 'slash') {
       ctx.strokeStyle = `rgba(160,220,255,${1 - age})`; ctx.lineWidth = 4; ctx.beginPath(); ctx.ellipse(p.x, p.y, 2.8 * TW / 2 * (0.4 + age), 2.8 * TH / 2 * (0.4 + age), 0, 0, 7); ctx.stroke();
     } else if (f.t === 'chop') {
@@ -695,10 +695,17 @@ function drawBag(b, t) {
 function drawMob(m, t) {
   const p = iso(m.rx, m.ry);
   ctx.fillStyle = '#0004'; ctx.beginPath(); ctx.ellipse(p.x, p.y, 15, 7, 0, 0, 7); ctx.fill();
-  ctx.fillStyle = '#7a7f88'; ctx.beginPath(); ctx.ellipse(p.x, p.y - 10, 14, 9, 0, 0, 7); ctx.fill();
-  ctx.beginPath(); ctx.arc(p.x + 10, p.y - 16, 7, 0, 7); ctx.fill();
-  ctx.fillStyle = '#ff4040'; ctx.fillRect(p.x + 11, p.y - 18, 3, 3);
-  bar(p.x, p.y - 32, 30, m.hp / m.mh, '#d64545'); flagIcons(p.x, p.y - 38, m.fl);
+  const K = { nor: ['#7a7f88', 1], rap: ['#4a9ad6', 0.78], bru: ['#8a5a3a', 1.35], jef: ['#8a2bd1', 2.2] }[m.k] || ['#7a7f88', 1], z = K[1];
+  const bob = Math.sin(t / 160 + m.id) * 1.5 * z;
+  ctx.save(); ctx.translate(p.x, p.y + bob); ctx.scale(z, z);
+  ctx.fillStyle = K[0]; ctx.beginPath(); ctx.ellipse(0, -10, 14, 9, 0, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.arc(10, -16, 7, 0, 7); ctx.fill();
+  if (m.k === 'bru' || m.k === 'jef') { ctx.fillStyle = '#ddd'; ctx.beginPath(); ctx.moveTo(8, -21); ctx.lineTo(10, -30); ctx.lineTo(13, -21); ctx.fill(); }
+  if (m.k === 'jef') { ctx.strokeStyle = '#ff5ad1'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(0, -10, 17, 12, 0, 0, 7); ctx.stroke(); }
+  ctx.fillStyle = '#ff4040'; ctx.fillRect(11, -18, 3, 3);
+  ctx.restore();
+  bar(p.x, p.y - 32 * z, 30 * Math.min(z, 1.6), m.hp / m.mh, m.k === 'jef' ? '#c43ad6' : '#d64545'); flagIcons(p.x, p.y - 38 * z, m.fl);
+  if (m.k === 'jef') { ctx.font = 'bold 12px system-ui'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.strokeText('JEFE', p.x, p.y - 32 * z - 8); ctx.fillStyle = '#ff9aef'; ctx.fillText('JEFE', p.x, p.y - 32 * z - 8); }
 }
 function drawPlayer(o, t) {
   const p = iso(o.rx, o.ry), mine = o.id === myId;
