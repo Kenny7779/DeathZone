@@ -158,6 +158,7 @@
     <button data-tab="quests">Misiones</button>
     <button data-tab="party">Grupo</button>
     <button data-tab="gear">Equipo</button>
+    <button data-tab="fly">Vuelo</button>
     <button id="pclose" style="margin-left:auto">✕</button>
   </div>
   <div id="pbody"></div>
@@ -176,7 +177,7 @@ function resize() { DPR = Math.min(2, window.devicePixelRatio || 1); VW = innerW
 addEventListener('resize', resize); resize();
 
 // ================== Estado ==================
-let ws = null, myId = null, W = 100, H = 100, mapName = '', biome = 'city', safe = true, links = [], recipes = {}, items = [];
+let ws = null, myId = null, W = 100, H = 100, mapName = '', biome = 'city', safe = true, links = [], regions = null, recipes = {}, items = [];
 let resList = [], deadRes = new Set();
 const players = new Map(), mobs = new Map();
 let bags = [], fx = [], me = { inv: {}, silver: 0, xp: 0, lvl: 1, hp: 100, mh: 100, mp: 50, mm: 50, nx: 40 };
@@ -195,7 +196,14 @@ const BIOME = {
   ice: { t: ['#b9d6e6', '#c4deec'], m: '#6f96ad', leaf: ['#9fc9dd', '#cfe6f1'] },
   desert: { t: ['#c9a463', '#d1ac6b'], m: '#8c7240', leaf: ['#8aa04a', '#a3b85c'] },
   ruins: { t: ['#5b5470', '#625b78'], m: '#3d3750', leaf: ['#6b5f8a', '#8577a8'] },
+  plains: { t: ['#8fae5a', '#98b862'], m: '#5c7a36', leaf: ['#4f8a3a', '#62a64a'] },
+  swamp: { t: ['#4b5a3a', '#52623f'], m: '#33402a', leaf: ['#6b7a3a', '#8a9a4a'] },
+  volcano: { t: ['#4a2a26', '#52302b'], m: '#7a2a14', leaf: ['#8a3a1a', '#b8501f'] },
+  beach: { t: ['#d8c58a', '#dfce95'], m: '#a89860', leaf: ['#3f9a5a', '#58b46f'] },
+  mount: { t: ['#7a7d86', '#82858e'], m: '#555862', leaf: ['#4a6a4a', '#5f805f'] },
 };
+const biomeAt = (x, y) => { if (regions) for (const g of regions) if (x >= g.x0 && x < g.x1 && y >= g.y0 && y < g.y1) return g.biome; return biome; };
+const regionAt = (x, y) => { if (regions) for (const g of regions) if (x >= g.x0 && x < g.x1 && y >= g.y0 && y < g.y1) return g; return null; };
 const iso = (x, y) => ({ x: (x - y) * TW / 2, y: (x + y) * TH / 2 });
 function toast(m, t = 2200) { const e = document.getElementById('toast'); e.textContent = m; e.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(() => e.style.display = 'none', t); }
 
@@ -215,7 +223,7 @@ const send = (o) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o));
 function onMsg(m) {
   switch (m.t) {
     case 'init':
-      myId = m.id; window.myName = m.nm; W = m.W; H = m.H; mapName = m.mapName; biome = m.biome; safe = m.safe; links = m.links || []; recipes = m.recipes; items = m.items; resList = m.res; pp = m.pp;
+      myId = m.id; window.myName = m.nm; W = m.W; H = m.H; mapName = m.mapName; biome = m.biome; safe = m.safe; links = m.links || []; regions = m.regions || null; recipes = m.recipes; items = m.items; resList = m.res; pp = m.pp;
       players.clear(); mobs.clear(); bags = []; fx = []; deadRes = new Set();
       city = m.city; document.getElementById('login').style.display = 'none'; document.getElementById('creator').style.display = 'none'; break;
     case 'auth': pp = m.pp; races = m.races; chars = m.chars; maxChars = m.max; if (m.created) send({ t: 'join', name: m.created }); else if (chars.length) showChars(); else showCreator(); break;
@@ -227,7 +235,7 @@ function onMsg(m) {
       if (panelOpen) { if (tab === 'powers') { if (powersSig() !== lastPSig) renderPanel(); } else renderPanel(); } break;
     case 'pprev': prev = m.r; updatePrev(); break;
     case 'market': market = m.list; if (panelOpen && tab === 'market') renderPanel(); break;
-    case 'msg': toast(m.m); if (/^Botín|Misión cumplida|Soltó|mejorada a/.test(m.m)) sfx('item'); else if (/Invasión|derrotó al jefe/.test(m.m)) sfx('alarm'); else if (/^Entras a/.test(m.m)) sfx('portal'); break;
+    case 'msg': toast(m.m); if (/^Botín|Misión cumplida|Soltó|mejorada a/.test(m.m)) sfx('item'); else if (/Invasión|derrotó al jefe/.test(m.m)) sfx('alarm'); else if (/^Entras a|^Vuelas hacia|^Llegaste a/.test(m.m)) sfx('portal'); else if (/Descubriste/.test(m.m)) sfx('item'); break;
     case 'pinv': pInvite = m.from; toast(m.from + ' te invita a su grupo: abre Menú > Grupo o escribe /aceptar', 6000); if (panelOpen && tab === 'party') renderPanel(); break;
     case 'chat': {
       const d = document.createElement('div'); d.textContent = m.n + ': ' + m.m;
@@ -420,6 +428,12 @@ function renderPanel() {
     h += powersHTML();
   } else if (tab === 'tree') {
     h += treeHTML();
+  } else if (tab === 'fly') {
+    const fl = me.fly || { near: false, list: [] };
+    h += '<p><small>Los Maestros de vuelo (edificios dorados, también en el minimapa) te llevan volando entre regiones y mapas. Descubre más puntos de vuelo explorando: acércate a ellos.</small></p>';
+    if (me.fv) h += `<p>🦅 Volando hacia <b>${esc(me.fv)}</b>…</p>`;
+    else if (!fl.near) h += '<p style="color:#ffd27a">Acércate a un Maestro de vuelo para volar.</p>';
+    h += fl.list.map((f) => `<div class="row"><div><b>${esc(f.name)}</b><br><small>${esc(f.mapName)}${f.here ? ' · estás aquí' : ''}</small></div><button data-fly="${f.id}" ${(!fl.near || f.here || me.fv || me.silver < f.cost) ? 'disabled style="opacity:.4"' : ''}>🪙 ${f.cost} · Volar</button></div>`).join('');
   } else if (tab === 'gear') {
     const SL = { casco: ['🪖', 'hp'], pecho: ['🛡️', 'def'], botas: ['👢', 'spd'], anillo: ['💍', 'dmg'] }, RC = ['#c8ccd2', '#5fd35f', '#4aa3ff', '#c05cff'], RN = ['Común', 'Poco común', 'Raro', 'Épico'];
     const fv = (g) => SL[g.slot][1] === 'hp' ? '+' + g.v + ' vida' : '+' + Math.round(g.v * 1000) / 10 + '% ' + { def: 'defensa', spd: 'velocidad', dmg: 'daño' }[SL[g.slot][1]];
@@ -452,6 +466,7 @@ function renderPanel() {
   pbody.querySelectorAll('[data-pinv]').forEach((b) => b.onclick = () => send({ t: 'party', a: 'inv', name: b.dataset.pinv }));
   pbody.querySelectorAll('[data-pacc]').forEach((b) => b.onclick = () => { send({ t: 'party', a: 'acc' }); pInvite = null; renderPanel(); });
   pbody.querySelectorAll('[data-pleave]').forEach((b) => b.onclick = () => send({ t: 'party', a: 'leave' }));
+  pbody.querySelectorAll('[data-fly]').forEach((b) => b.onclick = () => { send({ t: 'fly', to: b.dataset.fly }); togglePanel(); });
   pbody.querySelectorAll('[data-eq]').forEach((b) => b.onclick = () => send({ t: 'equip', id: +b.dataset.eq }));
   pbody.querySelectorAll('[data-uneq]').forEach((b) => b.onclick = () => send({ t: 'unequip', slot: b.dataset.uneq }));
   pbody.querySelectorAll('[data-scrap]').forEach((b) => b.onclick = () => send({ t: 'scrap', id: +b.dataset.scrap }));
@@ -582,7 +597,7 @@ function hud() {
   document.querySelector('#hp i').style.width = Math.max(0, me.hp / me.mh * 100) + '%';
   document.querySelector('#mp i').style.width = Math.max(0, me.mp / me.mm * 100) + '%';
   document.querySelector('#xp i').style.width = (me.xp / me.nx * 100) + '%';
-  document.getElementById('info').innerHTML = `Nv ${me.lvl} · HP ${me.hp}/${me.mh} · MP ${me.mp}<br>🪙 ${me.silver}${me.mt ? ' · 🐎' : ''}${me.cb > 1 ? ` · 🔥 Racha x${me.cb}` : ''}`;
+  document.getElementById('info').innerHTML = `Nv ${me.lvl} · HP ${me.hp}/${me.mh} · MP ${me.mp}<br>🪙 ${me.silver}${me.mt ? ' · 🐎' : ''}${me.fv ? ' · 🦅 ' + me.fv : ''}${me.cb > 1 ? ` · 🔥 Racha x${me.cb}` : ''}`;
 }
 
 // ================== Login ==================
@@ -736,7 +751,7 @@ function draw(t) {
     const p = iso(tx + 0.5, ty + 0.5); const sx = p.x, sy = p.y;
     if (Math.abs(sx - cam.x) > VW / sc / 2 + TW || Math.abs(sy - cam.y) > VH / sc / 2 + TH) continue;
     const chk = (tx + ty) & 1;
-    const bm = BIOME[biome] || BIOME.death;
+    const bm = BIOME[regions ? biomeAt(tx + 0.5, ty + 0.5) : biome] || BIOME.death;
     let col = chk ? bm.t[0] : bm.t[1];
     for (const l of links) {                                   // franja dorada en los bordes que llevan a otro mapa
       const ax = l.side === 'e' || l.side === 'w' ? ty : tx;
@@ -800,6 +815,8 @@ function draw(t) {
   if (VH > 420) {
     ctx.fillStyle = '#0009'; ctx.fillRect(mx, my, mw, mw);
     ctx.fillStyle = (BIOME[biome] || BIOME.death).m; ctx.fillRect(mx, my, mw, mw);
+    if (regions) for (const g of regions) { ctx.fillStyle = (BIOME[g.biome] || BIOME.death).m; ctx.fillRect(mx + g.x0 / W * mw, my + g.y0 / H * mw, (g.x1 - g.x0) / W * mw - 1, (g.y1 - g.y0) / H * mw - 1); }
+    if (city) { ctx.fillStyle = '#ffd24a'; for (const b of city.buildings) if (b.tab === 'fly') ctx.fillRect(mx + b.x / W * mw - 1, my + b.y / H * mw - 1, 3, 3); }
     ctx.fillStyle = '#c9a227';
     for (const l of links) { const a = l.min != null ? (l.min / (l.side === 'e' || l.side === 'w' ? H : W)) * mw : 0, b = l.min != null ? ((l.max - l.min) / (l.side === 'e' || l.side === 'w' ? H : W)) * mw : mw;
       if (l.side === 'e') ctx.fillRect(mx + mw - 2, my + a, 2, b); else if (l.side === 'w') ctx.fillRect(mx, my + a, 2, b); else if (l.side === 's') ctx.fillRect(mx + a, my + mw - 2, b, 2); else ctx.fillRect(mx + a, my, b, 2); }
@@ -814,7 +831,8 @@ function draw(t) {
   const eb = document.getElementById('bEnter');
   if (nb) { enterTab = nb.tab; eb.textContent = 'Entrar: ' + nb.name; eb.style.display = 'block'; } else { enterTab = null; eb.style.display = 'none'; }
   const zEl = document.getElementById('zone'), red = !safe;
-  zEl.textContent = (red ? '⚠ ' : '') + mapName; zEl.classList.toggle('red', red);
+  const rg = regionAt(mp.rx, mp.ry);
+  zEl.textContent = (red ? '⚠ ' : '') + (rg ? rg.name + ' (T' + rg.tier + ')' : mapName); zEl.classList.toggle('red', red);
 }
 
 function flagIcons(x, y, fl) { if (!fl) return; ctx.font = '14px system-ui'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff'; ctx.fillText(fl & 2 ? '❄️' : '', x, y); }
@@ -823,7 +841,7 @@ function drawRes(r) {
   ctx.fillStyle = '#0004'; ctx.beginPath(); ctx.ellipse(p.x, p.y, 14, 7, 0, 0, 7); ctx.fill();
   if (r.t === 'tree') {
     ctx.fillStyle = '#5b3a1e'; ctx.fillRect(p.x - 4, p.y - 22, 8, 22);
-    const lf = (BIOME[biome] || BIOME.death).leaf;
+    const lf = (BIOME[regions ? biomeAt(r.x, r.y) : biome] || BIOME.death).leaf;
     ctx.fillStyle = lf[0]; ctx.beginPath(); ctx.arc(p.x, p.y - 32, 17, 0, 7); ctx.fill();
     ctx.fillStyle = lf[1]; ctx.beginPath(); ctx.arc(p.x - 5, p.y - 36, 9, 0, 7); ctx.fill();
   } else if (r.t === 'rock') {
@@ -859,6 +877,16 @@ function drawPlayer(o, t) {
   const p = iso(o.rx, o.ry), mine = o.id === myId;
   ctx.fillStyle = '#0005'; ctx.beginPath(); ctx.ellipse(p.x, p.y, 14, 7, 0, 0, 7); ctx.fill();
   if (mine) { ctx.strokeStyle = '#fff8'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(p.x, p.y, 17, 9, 0, 0, 7); ctx.stroke(); }
+  if (o.fl & 8) {   // volando en grifo
+    const fa = 30 + Math.sin(t / 200) * 3, wf = Math.sin(t / 110);
+    ctx.fillStyle = '#0005'; ctx.beginPath(); ctx.ellipse(p.x, p.y, 20, 9, 0, 0, 7); ctx.fill();
+    p.y -= fa;
+    ctx.fillStyle = '#c99a55'; ctx.beginPath(); ctx.moveTo(p.x - 4, p.y - 6); ctx.lineTo(p.x - 34, p.y - 22 - wf * 14); ctx.lineTo(p.x - 14, p.y + 2); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(p.x + 4, p.y - 6); ctx.lineTo(p.x + 34, p.y - 22 - wf * 14); ctx.lineTo(p.x + 14, p.y + 2); ctx.fill();
+    ctx.fillStyle = '#a97a3a'; ctx.beginPath(); ctx.ellipse(p.x, p.y - 2, 15, 8, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#e9d9b0'; ctx.beginPath(); ctx.arc(p.x + 15, p.y - 6, 6, 0, 7); ctx.fill(); ctx.fillStyle = '#f2a33a'; ctx.beginPath(); ctx.moveTo(p.x + 20, p.y - 7); ctx.lineTo(p.x + 27, p.y - 4); ctx.lineTo(p.x + 20, p.y - 3); ctx.fill();
+    p.y -= 6;
+  }
   if (o.fl & 4) { ctx.fillStyle = '#6b4a2b'; ctx.beginPath(); ctx.ellipse(p.x, p.y - 8, 20, 9, 0, 0, 7); ctx.fill(); ctx.fillStyle = '#8a6238'; ctx.beginPath(); ctx.arc(p.x + 18, p.y - 14, 6, 0, 7); ctx.fill(); ctx.fillStyle = '#111'; ctx.fillRect(p.x - 18, p.y - 2, 3, 8); ctx.fillRect(p.x + 12, p.y - 2, 3, 8); p.y -= 8; }
   drawBody(ctx, p.x, p.y, o.lk ? { pw: o.lk[0], au: o.lk[1], tn: o.lk[2], cl: o.lk[3], rc: o.lk[4] } : null, t, o.sw, o.n);
   ctx.font = '12px system-ui'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000';

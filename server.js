@@ -44,6 +44,22 @@ const MAPDEF = {
   ruinas: { tier: 4, name: 'Ruinas arcanas', W: 100, H: 100, biome: 'ruins', hp: 170, dmg: 18, rew: 3, core: 0.7, mobs: 40, tree: 30, rock: 120, ore: 160,
     links: [{ side: 'w', to: 'desierto' }] },
 };
+// Continente de Eldoria: mundo enorme (360x360) dividido en 9 regiones con clima y dificultad propios.
+// Los Maestros de vuelo (edificios dorados) permiten viajar volando entre regiones y mapas, como en WoW.
+const TIERS = { 1: { hp: 45, dmg: 6, rew: 0.8, core: 0.15 }, 2: { hp: 80, dmg: 10, rew: 1.3, core: 0.3 }, 3: { hp: 120, dmg: 14, rew: 2, core: 0.45 }, 4: { hp: 170, dmg: 19, rew: 3, core: 0.6 } };
+const FLIGHTS = [{ id: 'aurora', name: 'Ciudad de Aurora', map: 'lobby', x: 29.5, y: 31.5 }];
+const FLIGHT_START = ['aurora', 'eld_plains'];
+MAPDEF.lobby.buildings.splice(MAPDEF.lobby.buildings.length - 1, 0, { id: 'vuelo', name: 'Maestro de vuelo', x: 28, y: 28.5, w: 3, d: 2, h: 50, roof: '#d9a441', tab: 'fly' });
+MAPDEF.bosque.links.push({ side: 'n', to: 'eldoria' });
+MAPDEF.eldoria = { tier: 1, name: 'Continente de Eldoria', W: 360, H: 360, biome: 'plains', regions: [], buildings: [], links: [{ side: 's', to: 'bosque' }] };
+[[0, 0, 'Cumbres nevadas', 'ice', 4, { tree: 8, rock: 60, ore: 45 }], [1, 0, 'Montañas de hierro', 'mount', 2, { tree: 25, rock: 70, ore: 55 }], [2, 0, 'Pantano de la niebla', 'swamp', 3, { tree: 80, rock: 25, ore: 30 }],
+ [0, 1, 'Bosque de Aldea', 'forest', 1, { tree: 110, rock: 20, ore: 10 }], [1, 1, 'Llanuras de Eldoria', 'plains', 1, { tree: 50, rock: 35, ore: 15 }], [2, 1, 'Desierto escarlata', 'desert', 3, { tree: 8, rock: 60, ore: 50 }],
+ [0, 2, 'Costa cristalina', 'beach', 2, { tree: 40, rock: 40, ore: 25 }], [1, 2, 'Valle volcánico', 'volcano', 4, { tree: 6, rock: 60, ore: 60 }], [2, 2, 'Ruinas del Alba', 'ruins', 4, { tree: 12, rock: 55, ore: 55 }]].forEach(([cx, cy, name, biome, tier, res]) => {
+  const x0 = cx * 120, y0 = cy * 120, mx = x0 + 60, my = y0 + 60;
+  MAPDEF.eldoria.regions.push({ x0, y0, x1: x0 + 120, y1: y0 + 120, name, biome, tier, res, mobs: 40, node: [mx, my + 3.5] });
+  MAPDEF.eldoria.buildings.push({ id: 'vuelo_' + biome, name: 'Maestro de vuelo · ' + name, x: mx - 1.5, y: my - 1, w: 3, d: 2, h: 50, roof: '#d9a441', tab: 'fly' });
+  FLIGHTS.push({ id: 'eld_' + biome, name: name, map: 'eldoria', x: mx, y: my + 3.5 });
+});
 // Colisiones: los edificios son sólidos (la puerta se puede cruzar). El jugador mide 0,4 tiles de radio.
 const R_PLAYER = 0.4;
 const blockedAt = (w, x, y) => (w.buildings || []).some((b) => b.solid !== false && x > b.x - R_PLAYER && x < b.x + b.w + R_PLAYER && y > b.y - R_PLAYER && y < b.y + b.d + R_PLAYER);
@@ -105,11 +121,27 @@ for (const id in MAPDEF) {
   for (let i = 0; i < (d.mobs || 0); i++) {   // lejos de los bordes (zonas de llegada)
     const x = 9 + rnd() * (w.W - 18), y = 9 + rnd() * (w.H - 18);
     const r = rnd(), k = r < 0.6 ? 'nor' : r < 0.85 ? 'rap' : 'bru', K = KINDS[k], hp = Math.round(d.hp * K.hp);
-    w.mobs.push({ id: newId(), w: id, k, sp: K.sp, ag: K.ag, x, y, hx: x, hy: y, hp, mhp: hp, dmg: Math.round(d.dmg * K.dmg), rew: d.rew * K.rew, core: d.core, rt: 15000, alive: true, respawn: 0, cd: 0 });
+    w.mobs.push({ id: newId(), w: id, k, tier: d.tier || 1, sp: K.sp, ag: K.ag, x, y, hx: x, hy: y, hp, mhp: hp, dmg: Math.round(d.dmg * K.dmg), rew: d.rew * K.rew, core: d.core, rt: 15000, alive: true, respawn: 0, cd: 0 });
   }
-  if (!d.safe) {   // jefe en el centro del mapa
+  for (const R of d.regions || []) {   // regiones del continente: recursos, monstruos y un jefe cada una
+    const T = TIERS[R.tier], bx = (R.x0 + R.x1) / 2, by = (R.y0 + R.y1) / 2, nx = R.node[0], ny = R.node[1];
+    for (const type of ['tree', 'rock', 'ore']) for (let i = 0; i < R.res[type]; i++) {
+      const x = R.x0 + 3 + rnd() * (R.x1 - R.x0 - 6), y = R.y0 + 3 + rnd() * (R.y1 - R.y0 - 6);
+      if (Math.hypot(x - nx, y - ny) < 8) continue;
+      w.res.push({ id: newId(), t: type, x, y, hp: type === 'ore' ? 4 : 3, alive: true, respawn: 0 });
+    }
+    for (let i = 0; i < R.mobs; i++) {
+      const x = R.x0 + 9 + rnd() * (R.x1 - R.x0 - 18), y = R.y0 + 9 + rnd() * (R.y1 - R.y0 - 18);
+      if (Math.hypot(x - nx, y - ny) < 16) continue;
+      const r = rnd(), k = r < 0.6 ? 'nor' : r < 0.85 ? 'rap' : 'bru', K = KINDS[k], hp = Math.round(T.hp * K.hp);
+      w.mobs.push({ id: newId(), w: id, k, tier: R.tier, sp: K.sp, ag: K.ag, x, y, hx: x, hy: y, hp, mhp: hp, dmg: Math.round(T.dmg * K.dmg), rew: T.rew * K.rew, core: T.core, rt: 15000, alive: true, respawn: 0, cd: 0 });
+    }
+    const K = KINDS.jef, hp = Math.round(T.hp * K.hp), x = bx + 25, y = by - 25;
+    w.mobs.push({ id: newId(), w: id, k: 'jef', tier: R.tier, sp: K.sp, ag: K.ag, x, y, hx: x, hy: y, hp, mhp: hp, dmg: Math.round(T.dmg * K.dmg), rew: T.rew * K.rew, core: 1, rt: 180000, alive: true, respawn: 0, cd: 0, sc: 0 });
+  }
+  if (!d.safe && !d.regions) {   // jefe en el centro del mapa
     const K = KINDS.jef, hp = Math.round(d.hp * K.hp), x = w.W / 2, y = w.H / 2;
-    w.mobs.push({ id: newId(), w: id, k: 'jef', sp: K.sp, ag: K.ag, x, y, hx: x, hy: y, hp, mhp: hp, dmg: Math.round(d.dmg * K.dmg), rew: d.rew * K.rew, core: 1, rt: 120000, alive: true, respawn: 0, cd: 0, sc: 0 });
+    w.mobs.push({ id: newId(), w: id, k: 'jef', tier: d.tier || 1, sp: K.sp, ag: K.ag, x, y, hx: x, hy: y, hp, mhp: hp, dmg: Math.round(d.dmg * K.dmg), rew: d.rew * K.rew, core: 1, rt: 120000, alive: true, respawn: 0, cd: 0, sc: 0 });
   }
 }
 const players = new Map(); // ws -> player
@@ -148,10 +180,14 @@ function addXp(p, n) {
 }
 function addItem(a, item, n) { a.inv[item] = (a.inv[item] || 0) + n; if (a.inv[item] <= 0) delete a.inv[item]; }
 
+const fpOf = (a) => { if (!Array.isArray(a.fp)) a.fp = FLIGHT_START.slice(); return a.fp; };
+const flightHere = (p) => FLIGHTS.find((f) => f.map === p.map && dist(p, f) < 6 && fpOf(p.acct).includes(f.id));
+const flightCost = (from, to) => (from.map !== to.map ? 15 : 3 + Math.round(dist(from, to) / 5));
 function enterMap(p, id, x, y) {
   const w = worlds[id]; p.map = id; p.x = x; p.y = y; p.dx = 0; p.dy = 0; p.slowUntil = 0; p.dirty = true;
   send(p.ws, { t: 'init', id: p.id, nm: p.acct.name, map: id, mapName: w.name, biome: w.biome, safe: !!w.safe, W: w.W, H: w.H, recipes: RECIPES, items: ITEMS, pp: POWER_INIT,
-    city: w.buildings ? { buildings: w.buildings } : null, links: (w.links || []).map((l) => ({ side: l.side, min: l.min, max: l.max, to: worlds[l.to].name })), res: w.res.map((r) => ({ id: r.id, t: r.t, x: r.x, y: r.y })) });
+    city: w.buildings ? { buildings: w.buildings } : null, regions: w.regions ? w.regions.map((r) => ({ x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1, name: r.name, biome: r.biome, tier: r.tier })) : null,
+    links: (w.links || []).map((l) => ({ side: l.side, min: l.min, max: l.max, to: worlds[l.to].name })), res: w.res.map((r) => ({ id: r.id, t: r.t, x: r.x, y: r.y })) });
 }
 const spawnIn = () => { const d = MAPDEF.lobby; return [d.spawn[0] + rnd() * 4, d.spawn[1] - 2 + rnd() * 4]; };
 function respawn(p) {
@@ -184,6 +220,7 @@ function killPlayer(p, killer) {
   respawn(p);
 }
 function hurtPlayer(p, amt, killer) {
+  if (p.flight) return;
   if (p.acct.inv.armadura > 0) amt = Math.round(amt * (0.7 - 0.03 * upOf(p.acct, 'armadura')));
   amt = Math.round(amt * (1 - Math.min(0.4, gearStat(p.acct).def)));
   p.hp -= amt; p.dirty = true;
@@ -219,7 +256,7 @@ function hurtMob(m, amt, killer, crit) {
     if (rnd() < (m.k === 'jef' ? 1 : 0.1)) { addItem(killer.acct, 'pocion', 1); send(killer.ws, { t: 'msg', m: 'Soltó una poción' }); }
     for (const q of partyMates(killer)) if (q.map === killer.map && dist(q, killer) < 40) { addXp(q, Math.round(4 * m.rew * bonus)); qprog(q, 'kill', 1); if (m.k === 'jef') qprog(q, 'boss', 1); }
     if (rnd() < (m.k === 'jef' ? 1 : m.k === 'bru' ? 0.12 : 0.06)) {                     // botín de equipo
-      const a = killer.acct, g = rollGear(worlds[m.w].tier || 1, m.k === 'jef' ? 2 : 0);
+      const a = killer.acct, g = rollGear(m.tier || 1, m.k === 'jef' ? 2 : 0);
       a.gear = a.gear || [];
       if (a.gear.length >= GEAR_MAX) { a.silver += 10 * (g.rar + 1) * g.tier; send(killer.ws, { t: 'msg', m: 'Bolsa de equipo llena: vendiste ' + g.name + ' (' + RARS[g.rar].n + ')' }); }
       else { a.gear.push(g); send(killer.ws, { t: 'msg', m: 'Botín: ' + g.name + ' (' + RARS[g.rar].n + ')' }); }
@@ -289,6 +326,7 @@ function castPower(p, ws, slot, now) {
 const lastChat = new WeakMap();
 function handle(ws, p, msg) {
   const now = Date.now();
+  if (p.flight && ['in', 'atk', 'sk', 'pcast', 'gather', 'dash', 'mount', 'potion', 'fly'].includes(msg.t)) return;   // volando: solo mirar
   switch (msg.t) {
     case 'in': {
       let dx = +msg.dx || 0, dy = +msg.dy || 0;
@@ -296,6 +334,20 @@ function handle(ws, p, msg) {
       if (l > 1) { dx /= l; dy /= l; }
       p.dx = dx; p.dy = dy; p.lastIn = now;
       if (l > 0.1) { p.fx = dx / (l || 1); p.fy = dy / (l || 1); }
+      break;
+    }
+    case 'fly': {
+      const a = p.acct, f = FLIGHTS.find((x) => x.id === msg.to);
+      if (!f || !fpOf(a).includes(f.id)) return;
+      const here = flightHere(p);
+      if (!here) return send(ws, { t: 'msg', m: 'Debes estar junto a un Maestro de vuelo.' });
+      if (here === f) return;
+      const cost = flightCost(here, f), cross = here.map !== f.map;
+      if (a.silver < cost) return send(ws, { t: 'msg', m: 'Necesitas ' + cost + ' de plata para ese vuelo.' });
+      a.silver -= cost;
+      p.flight = { to: f, from: { x: p.x, y: p.y }, t0: now, dur: cross ? 5000 : Math.max(3, Math.min(20, dist(here, f) / 20)) * 1000, cross };
+      p.mounted = false; p.dx = 0; p.dy = 0; p.dirty = true;
+      send(ws, { t: 'msg', m: 'Vuelas hacia: ' + f.name });
       break;
     }
     case 'mount': {
@@ -629,6 +681,16 @@ function tick() {
   const now = Date.now(), dt = Math.min(0.1, (now - last) / 1000); last = now; tickN++;
 
   for (const p of players.values()) {
+    if (p.flight) {   // en vuelo: posición interpolada, sin daño ni control
+      const F = p.flight, k = Math.min(1, (now - F.t0) / F.dur);
+      if (!F.cross) { p.x = F.from.x + (F.to.x - F.from.x) * k; p.y = F.from.y + (F.to.y - F.from.y) * k; }
+      if (k >= 1) { p.flight = null; if (F.cross) enterMap(p, F.to.map, F.to.x, F.to.y); else { p.x = F.to.x; p.y = F.to.y; } p.dirty = true; send(p.ws, { t: 'msg', m: 'Llegaste a: ' + F.to.name }); }
+      continue;
+    }
+    for (const f of FLIGHTS) if (f.map === p.map && dist(p, f) < 6) {
+      const fp = fpOf(p.acct);
+      if (!fp.includes(f.id)) { fp.push(f.id); p.dirty = true; send(p.ws, { t: 'msg', m: '✈ Descubriste un punto de vuelo: ' + f.name }); }
+    }
     if (now - p.lastIn > 1000) { p.dx = 0; p.dy = 0; }
     const wd = worlds[p.map], sp = SPEED * raceOf(p.acct).spd * (1 + gearStat(p.acct).spd) * (p.mounted && p.acct.inv.montura > 0 ? 1.5 : 1) * (now < (p.slowUntil || 0) ? (p.slowMul || 0.6) : 1);
     const nx = clamp(p.x + p.dx * sp * dt, 0.5, wd.W - 0.5);
@@ -680,7 +742,7 @@ function tick() {
       if (!m.alive) { if (now >= m.respawn) { m.sc = 0; m.alive = true; m.hp = m.mhp; m.x = m.hx; m.y = m.hy; m.slowUntil = 0; } continue; }
       const mf = now < (m.slowUntil || 0) ? (m.slowMul || 0.6) : 1;
       let target = null, td = m.ag;
-      for (const p of here) { if (p.map !== id) continue; const d = dist(m, p); if (d < td) { td = d; target = p; } }
+      for (const p of here) { if (p.map !== id || p.flight) continue; const d = dist(m, p); if (d < td) { td = d; target = p; } }
       if (target && dist(m, { x: m.hx, y: m.hy }) < (m.k === 'jef' ? 22 : m.tmp ? 40 : 14)) {
         if (m.k === 'jef' && td < 3.2 && now >= m.sc) {   // pisotón del jefe: daño en área
           m.sc = now + 5000; events.push({ w: id, t: 'slash', x: m.x, y: m.y });
@@ -702,7 +764,7 @@ function tick() {
     for (const e of events) (evs[e.w] = evs[e.w] || []).push(e);
     events = [];
     const AOI = 45, near = (e, p) => Math.abs(e.x - p.x) <= AOI && Math.abs(e.y - p.y) <= AOI;   // área de interés de cada jugador
-    const pv = (p) => ({ id: p.id, n: p.acct.name, x: +p.x.toFixed(2), y: +p.y.toFixed(2), hp: Math.round(p.hp), mh: mhpOf(p.acct), l: p.acct.lvl, sw: p.acct.inv.espada > 0 ? 1 : 0, fl: flagsOf(p, now) | (p.mounted ? 4 : 0), pt: p.party ? p.party.id : 0, lk: p.acct.char ? [p.acct.char.power, p.acct.char.aura, p.acct.char.tone, p.acct.char.cloth, p.acct.char.race || 'humano'] : null });
+    const pv = (p) => ({ id: p.id, n: p.acct.name, x: +p.x.toFixed(2), y: +p.y.toFixed(2), hp: Math.round(p.hp), mh: mhpOf(p.acct), l: p.acct.lvl, sw: p.acct.inv.espada > 0 ? 1 : 0, fl: flagsOf(p, now) | (p.mounted ? 4 : 0) | (p.flight ? 8 : 0), pt: p.party ? p.party.id : 0, lk: p.acct.char ? [p.acct.char.power, p.acct.char.aura, p.acct.char.tone, p.acct.char.cloth, p.acct.char.race || 'humano'] : null });
     for (const k in byMap) delete byMap[k];   // la gente pudo cambiar de mapa (muerte, bordes) durante este tick
     for (const q of players.values()) (byMap[q.map] = byMap[q.map] || []).push(q);
     const snaps = {};
@@ -721,7 +783,7 @@ function tick() {
         p.dirty = false;
         send(ws, { t: 'me', inv: p.acct.inv, silver: p.acct.silver, xp: p.acct.xp, lvl: p.acct.lvl,
           hp: Math.round(p.hp), mh: mhpOf(p.acct), mp: Math.round(p.mp), mm: mmpOf(p.acct), nx: p.acct.lvl * 40,
-          tr: p.acct.trades || {}, pw: powersView(p.acct), bar: p.acct.bar || [null, null, null], pb: Pw.powerBudget(p.acct.lvl), cb: p.combo || 0, qs: questsOf(p.acct), up: p.acct.up || {}, gear: p.acct.gear || [], eq: p.acct.eq || {}, gst: gearStat(p.acct), gmax: GEAR_MAX, mt: p.mounted ? 1 : 0, pty: partyMates(p).map((m) => ({ n: m.acct.name, hp: Math.round(m.hp), mh: mhpOf(m.acct), l: m.acct.lvl })), upm: UP_MAX, upc: [0, 1, 2, 3, 4].map(upCost) });
+          tr: p.acct.trades || {}, pw: powersView(p.acct), bar: p.acct.bar || [null, null, null], pb: Pw.powerBudget(p.acct.lvl), cb: p.combo || 0, qs: questsOf(p.acct), up: p.acct.up || {}, fv: p.flight ? p.flight.to.name : null, fly: { near: !!flightHere(p) && !p.flight, list: FLIGHTS.filter((f) => fpOf(p.acct).includes(f.id)).map((f) => ({ id: f.id, name: f.name, mapName: worlds[f.map].name, cost: flightCost(p, f), here: f.map === p.map && dist(p, f) < 6 })) }, gear: p.acct.gear || [], eq: p.acct.eq || {}, gst: gearStat(p.acct), gmax: GEAR_MAX, mt: p.mounted ? 1 : 0, pty: partyMates(p).map((m) => ({ n: m.acct.name, hp: Math.round(m.hp), mh: mhpOf(m.acct), l: m.acct.lvl })), upm: UP_MAX, upc: [0, 1, 2, 3, 4].map(upCost) });
       }
     }
   }
