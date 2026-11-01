@@ -542,7 +542,7 @@ function makeSession(ws) {
   const auth = (created) => send(ws, { t: 'auth', name: login.name, pp: POWER_INIT, max: MAX_CHARS, created: created || null,
     races: Object.fromEntries(Object.entries(RACES).map(([k, r]) => [k, { name: r.name, ico: r.ico, desc: r.desc }])),
     chars: charsOf(login).map((n) => ({ name: n, lvl: accounts[n].lvl, look: lookOf(accounts[n]) })) });
-  return (raw) => {
+  const run = (raw) => {
     let msg; try { msg = JSON.parse(raw); } catch (e) { return; }
     if (p) return handle(ws, p, msg);
     if (msg.t === 'login' || msg.t === 'register') {
@@ -601,6 +601,7 @@ function makeSession(ws) {
       send(ws, { t: 'market', list: listings });
     }
   };
+  return (raw) => { try { return run(raw); } catch (e) { console.error('msg', e); } };
 }
 
 // ---------- red ----------
@@ -624,7 +625,7 @@ wss.on('connection', (ws) => {
 
 // ---------- bucle principal ----------
 let tickN = 0, last = Date.now(), nextInvasion = Date.now() + 180000;
-setInterval(() => {
+function tick() {
   const now = Date.now(), dt = Math.min(0.1, (now - last) / 1000); last = now; tickN++;
 
   for (const p of players.values()) {
@@ -679,11 +680,11 @@ setInterval(() => {
       if (!m.alive) { if (now >= m.respawn) { m.sc = 0; m.alive = true; m.hp = m.mhp; m.x = m.hx; m.y = m.hy; m.slowUntil = 0; } continue; }
       const mf = now < (m.slowUntil || 0) ? (m.slowMul || 0.6) : 1;
       let target = null, td = m.ag;
-      for (const p of here) { const d = dist(m, p); if (d < td) { td = d; target = p; } }
+      for (const p of here) { if (p.map !== id) continue; const d = dist(m, p); if (d < td) { td = d; target = p; } }
       if (target && dist(m, { x: m.hx, y: m.hy }) < (m.k === 'jef' ? 22 : m.tmp ? 40 : 14)) {
         if (m.k === 'jef' && td < 3.2 && now >= m.sc) {   // pisotón del jefe: daño en área
           m.sc = now + 5000; events.push({ w: id, t: 'slash', x: m.x, y: m.y });
-          for (const q of here.slice()) if (dist(m, q) < 3.2) hurtPlayer(q, Math.round(m.dmg * 1.5), null);
+          for (const q of here.slice()) if (q.map === id && dist(m, q) < 3.2) hurtPlayer(q, Math.round(m.dmg * 1.5), null);
         } else if (td > 1.2 + (m.k === 'jef' ? 0.6 : 0)) { m.x += ((target.x - m.x) / td) * m.sp * mf * dt; m.y += ((target.y - m.y) / td) * m.sp * mf * dt; }
         else if (now >= m.cd) { m.cd = now + 1000; hurtPlayer(target, m.dmg, null); }
       } else {
@@ -726,6 +727,7 @@ setInterval(() => {
   }
   // mp/hp cambian de forma continua: refrescar 'me' cada 1s
   if (tickN % 20 === 0) for (const p of players.values()) p.dirty = true;
-}, TICK);
+}
+setInterval(() => { try { tick(); } catch (e) { console.error('tick', e); } }, TICK);   // un fallo en un tick no tumba el servidor
 
 server.listen(PORT, () => console.log('MMORPG en http://localhost:' + PORT));

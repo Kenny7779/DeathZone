@@ -79,7 +79,10 @@
   #topbtns{position:fixed;right:8px;top:calc(48px + env(safe-area-inset-top));display:flex;gap:6px;z-index:7}
   #topbtns button{padding:6px 10px;font-size:13px}
   #panel{position:fixed;inset:50px 10px 10px 10px;background:#161c26f2;border:1px solid #3a4658;border-radius:14px;z-index:15;display:none;flex-direction:column;max-width:560px;margin:0 auto}
-  #panel .tabs{display:flex;flex-wrap:wrap;gap:6px;padding:8px}
+  #panel .tabs{display:flex;flex-wrap:nowrap;overflow-x:auto;gap:6px;padding:8px;scrollbar-width:none}
+  #panel .tabs #pclose{position:sticky;right:0;margin-left:auto;background:#2b3a52;box-shadow:-8px 0 8px -4px #0008}
+  #panel .tabs::-webkit-scrollbar{display:none}
+  #panel .tabs button{flex:0 0 auto}
   #panel .tabs button{padding:8px 10px;font-size:13px}
   #panel .tabs button.on{background:#4a6fa8}
   #pbody{flex:1;overflow:auto;padding:8px 12px;font-size:14px;user-select:text;-webkit-user-select:text}
