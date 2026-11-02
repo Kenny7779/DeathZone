@@ -21,6 +21,11 @@
   #login{position:fixed;inset:0;display:flex;flex-direction:column;gap:12px;align-items:center;justify-content:center;background:#10141aee;z-index:20}
   #login h1{margin:0;font-size:28px;letter-spacing:1px}
   #login input[type=password]{font-size:18px;padding:12px 14px;border-radius:10px;border:1px solid #3a4658;background:#1a212b;color:#fff;width:240px;text-align:center;user-select:text;-webkit-user-select:text}
+  #dlg{position:fixed;left:50%;bottom:10px;transform:translateX(-50%);width:min(560px,calc(100% - 16px));max-height:62vh;overflow:auto;background:#10161fee;border:1px solid #4a5d7c;border-radius:14px;padding:12px 14px;z-index:25;display:none;font-size:14px}
+  #dlg .nm{font-weight:700;font-size:16px;color:#9fe7ff}
+  #dlg .tt{font-size:12px;opacity:.7;margin-bottom:6px}
+  #dlg .tx{white-space:pre-line;line-height:1.4;margin-bottom:8px}
+  #dlg .op{display:flex;flex-wrap:wrap;gap:6px}
   #chars{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:#10141af2;z-index:21;padding:16px}
   #chars .row2{display:flex;gap:8px;width:min(340px,100%)}
   #chars .row2 button.sel{flex:1;text-align:left;padding:10px 12px}
@@ -99,6 +104,7 @@
 
 <div id="login">
   <h1>⚔️ Reinos de Plata</h1>
+  <div style="opacity:.8;font-size:14px;text-align:center;max-width:280px;font-style:italic">En el mundo de Aurelia nadie nace sin un don. Aquel que cree sin límites podrá igualar a los dioses, si antes no se destruye a sí mismo.</div>
   <div style="opacity:.8;font-size:14px;text-align:center;max-width:280px">Recolecta, fabrica, comercia y sobrevive en la zona de la muerte.</div>
   <input id="uname" maxlength="12" placeholder="Nombre de usuario" autocomplete="username">
   <input id="upass" type="password" maxlength="40" placeholder="Contraseña" autocomplete="current-password">
@@ -136,6 +142,7 @@
 <button id="bEnter" style="display:none"></button>
 <div id="topbtns"><button id="bBag">🎒 Menú</button><button id="bChat">💬</button><button id="bSnd">🔊</button></div>
 <div id="chatlog"></div>
+<div id="dlg"><div class="nm" id="dName"></div><div class="tt" id="dTitle"></div><div class="tx" id="dText"></div><div class="op" id="dOpts"></div></div>
 
 <div id="pbtns"><button id="bP0">＋</button><button id="bP1">＋</button><button id="bP2">＋</button></div>
 <div id="pad"><div id="knob"></div></div>
@@ -183,7 +190,7 @@ const players = new Map(), mobs = new Map();
 let bags = [], fx = [], me = { inv: {}, silver: 0, xp: 0, lvl: 1, hp: 100, mh: 100, mp: 50, mm: 50, nx: 40 };
 let market = [], zoomK = 1;
 let cd = { sk: 0, dash: 0, atk: 0 };
-let city = null, enterTab = null, pInvite = null;
+let city = null, enterTab = null, enterNpc = null, pInvite = null, npcs = [];
 let pp = null, cdP = [0, 0, 0], prev = null, prevT = null, lastPSig = '';
 let draft = { name: '', src: 'fuego', shape: 'proyectil', eff: 'dano', mods: { alcance: 0, potencia: 0, rapidez: 0, eficiencia: 0 } };
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -223,7 +230,7 @@ const send = (o) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o));
 function onMsg(m) {
   switch (m.t) {
     case 'init':
-      myId = m.id; window.myName = m.nm; W = m.W; H = m.H; mapName = m.mapName; biome = m.biome; safe = m.safe; links = m.links || []; regions = m.regions || null; recipes = m.recipes; items = m.items; resList = m.res; pp = m.pp;
+      myId = m.id; window.myName = m.nm; W = m.W; H = m.H; mapName = m.mapName; biome = m.biome; safe = m.safe; links = m.links || []; regions = m.regions || null; npcs = m.npcs || []; closeDlg(); recipes = m.recipes; items = m.items; resList = m.res; pp = m.pp;
       players.clear(); mobs.clear(); bags = []; fx = []; deadRes = new Set();
       city = m.city; document.getElementById('login').style.display = 'none'; document.getElementById('creator').style.display = 'none'; break;
     case 'auth': pp = m.pp; races = m.races; chars = m.chars; maxChars = m.max; if (m.created) send({ t: 'join', name: m.created }); else if (chars.length) showChars(); else showCreator(); break;
@@ -235,7 +242,8 @@ function onMsg(m) {
       if (panelOpen) { if (tab === 'powers') { if (powersSig() !== lastPSig) renderPanel(); } else renderPanel(); } break;
     case 'pprev': prev = m.r; updatePrev(); break;
     case 'market': market = m.list; if (panelOpen && tab === 'market') renderPanel(); break;
-    case 'msg': toast(m.m); if (/^Botín|Misión cumplida|Soltó|mejorada a/.test(m.m)) sfx('item'); else if (/Invasión|derrotó al jefe/.test(m.m)) sfx('alarm'); else if (/^Entras a|^Vuelas hacia|^Llegaste a/.test(m.m)) sfx('portal'); else if (/Descubriste/.test(m.m)) sfx('item'); break;
+    case 'dlg': showDlg(m); break;
+    case 'msg': toast(m.m); if (/^Botín|Misión cumplida|Soltó|mejorada a/.test(m.m)) sfx('item'); else if (/Invasión|derrotó a /.test(m.m)) sfx('alarm'); else if (/^Entras a|^Vuelas hacia|^Llegaste a/.test(m.m)) sfx('portal'); else if (/Descubriste/.test(m.m)) sfx('item'); break;
     case 'pinv': pInvite = m.from; toast(m.from + ' te invita a su grupo: abre Menú > Grupo o escribe /aceptar', 6000); if (panelOpen && tab === 'party') renderPanel(); break;
     case 'chat': {
       const d = document.createElement('div'); d.textContent = m.n + ': ' + m.m;
@@ -390,7 +398,16 @@ function syncSnd() { const b = document.getElementById('bSnd'); b.textContent = 
 document.getElementById('bSnd').onclick = () => { sndOn = !sndOn; try { localStorage.setItem('snd', sndOn ? '1' : '0'); } catch (e) {} syncSnd(); if (sndOn) { audio(); music(); } else clearInterval(musicT); };
 addEventListener('pointerdown', () => { if (!AC) { audio(); music(); } }, { once: true }); addEventListener('keydown', () => { if (!AC) { audio(); music(); } }, { once: true });
 syncSnd();
+function closeDlg() { document.getElementById('dlg').style.display = 'none'; }
+function showDlg(m) {
+  if (m.close) return closeDlg();
+  document.getElementById('dName').textContent = m.name; document.getElementById('dTitle').textContent = m.title; document.getElementById('dText').textContent = m.text;
+  const o = document.getElementById('dOpts'); o.innerHTML = '';
+  for (const op of m.opts) { const b = document.createElement('button'); b.textContent = op.l; b.onclick = () => send({ t: 'talkopt', id: m.id, opt: op.k }); o.appendChild(b); }
+  document.getElementById('dlg').style.display = 'block';
+}
 document.getElementById('bEnter').onclick = () => {
+  if (enterNpc) { if (panelOpen) togglePanel(); send({ t: 'talk', id: enterNpc }); return; }
   if (!enterTab) return;
   if (!panelOpen) togglePanel();
   tab = enterTab; syncTabs(); if (tab === 'powers') { prev = null; reqPrev(); } renderPanel();
@@ -597,7 +614,7 @@ function hud() {
   document.querySelector('#hp i').style.width = Math.max(0, me.hp / me.mh * 100) + '%';
   document.querySelector('#mp i').style.width = Math.max(0, me.mp / me.mm * 100) + '%';
   document.querySelector('#xp i').style.width = (me.xp / me.nx * 100) + '%';
-  document.getElementById('info').innerHTML = `Nv ${me.lvl} · HP ${me.hp}/${me.mh} · MP ${me.mp}<br>🪙 ${me.silver}${me.mt ? ' · 🐎' : ''}${me.fv ? ' · 🦅 ' + me.fv : ''}${me.cb > 1 ? ` · 🔥 Racha x${me.cb}` : ''}`;
+  document.getElementById('info').innerHTML = `Nv ${me.lvl} · Rango ${me.rk || 'F'} · HP ${me.hp}/${me.mh} · MP ${me.mp}<br>🪙 ${me.silver}${me.mt ? ' · 🐎' : ''}${me.fv ? ' · 🦅 ' + me.fv : ''}${me.cb > 1 ? ` · 🔥 Racha x${me.cb}` : ''}`;
 }
 
 // ================== Login ==================
@@ -765,13 +782,14 @@ function draw(t) {
   const ents = [];
   for (const b of (city ? city.buildings : [])) ents.push({ z: b.x + b.y + (b.w + b.d) / 2, k: 'bld', o: b });
   for (const r of resList) if (!deadRes.has(r.id) && Math.abs(r.x - cx) <= R && Math.abs(r.y - cy) <= R) ents.push({ z: r.x + r.y, k: 'res', o: r });
+  for (const q of npcs) ents.push({ z: q.x + q.y, k: 'npc', o: q });
   for (const b of bags) ents.push({ z: b.x + b.y, k: 'bag', o: b });
   for (const m of mobs.values()) ents.push({ z: m.rx + m.ry, k: 'mob', o: m });
   for (const p of players.values()) ents.push({ z: p.rx + p.ry, k: 'pl', o: p });
   ents.sort((a, b) => a.z - b.z);
   for (const e of ents) {
     const o = e.o;
-    if (e.k === 'bld') drawBld(o); else if (e.k === 'res') drawRes(o); else if (e.k === 'bag') drawBag(o, t); else if (e.k === 'mob') drawMob(o, t); else drawPlayer(o, t);
+    if (e.k === 'bld') drawBld(o); else if (e.k === 'res') drawRes(o); else if (e.k === 'npc') drawNpc(o, t); else if (e.k === 'bag') drawBag(o, t); else if (e.k === 'mob') drawMob(o, t); else drawPlayer(o, t);
   }
   // efectos
   const now = performance.now();
@@ -829,7 +847,10 @@ function draw(t) {
   for (let i = 0; i < 3; i++) document.getElementById('bP' + i).style.opacity = n < cdP[i] ? .45 : 1;
   const nb = city && city.buildings.find((b) => b.tab && mp.rx >= b.x - 2.5 && mp.rx <= b.x + b.w + 2.5 && mp.ry >= b.y - 2.5 && mp.ry <= b.y + b.d + 2.5);
   const eb = document.getElementById('bEnter');
-  if (nb) { enterTab = nb.tab; eb.textContent = 'Entrar: ' + nb.name; eb.style.display = 'block'; } else { enterTab = null; eb.style.display = 'none'; }
+  const nn = npcs.find((q) => Math.hypot(mp.rx - q.x, mp.ry - q.y) < 3.5);
+  if (nn) { enterNpc = nn.id; enterTab = null; eb.textContent = 'Hablar: ' + nn.name; eb.style.display = 'block'; }
+  else { enterNpc = null; if (nb) { enterTab = nb.tab; eb.textContent = 'Entrar: ' + nb.name; eb.style.display = 'block'; } else { enterTab = null; eb.style.display = 'none'; } }
+  if (!nn && document.getElementById('dlg').style.display === 'block') closeDlg();
   const zEl = document.getElementById('zone'), red = !safe;
   const rg = regionAt(mp.rx, mp.ry);
   zEl.textContent = (red ? '⚠ ' : '') + (rg ? rg.name + ' (T' + rg.tier + ')' : mapName); zEl.classList.toggle('red', red);
@@ -871,7 +892,17 @@ function drawMob(m, t) {
   ctx.fillStyle = '#ff4040'; ctx.fillRect(11, -18, 3, 3);
   ctx.restore();
   bar(p.x, p.y - 32 * z, 30 * Math.min(z, 1.6), m.hp / m.mh, m.k === 'jef' ? '#c43ad6' : '#d64545'); flagIcons(p.x, p.y - 38 * z, m.fl);
-  if (m.k === 'jef') { ctx.font = 'bold 12px system-ui'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.strokeText('JEFE', p.x, p.y - 32 * z - 8); ctx.fillStyle = '#ff9aef'; ctx.fillText('JEFE', p.x, p.y - 32 * z - 8); }
+  if (m.k === 'jef') { ctx.font = 'bold 12px system-ui'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.strokeText(m.nm || 'JEFE', p.x, p.y - 32 * z - 8); ctx.fillStyle = '#ff9aef'; ctx.fillText(m.nm || 'JEFE', p.x, p.y - 32 * z - 8); }
+}
+function drawNpc(n, t) {
+  const p = iso(n.x, n.y);
+  ctx.fillStyle = '#0005'; ctx.beginPath(); ctx.ellipse(p.x, p.y, 14, 7, 0, 0, 7); ctx.fill();
+  drawBody(ctx, p.x, p.y, { pw: n.look[0], au: n.look[1], tn: n.look[2], cl: n.look[3], rc: n.look[4] }, t, 0, n.name);
+  if (n.id === 'orion') { ctx.fillStyle = '#f1f1f1'; ctx.beginPath(); ctx.moveTo(p.x - 7, p.y - 31); ctx.lineTo(p.x + 7, p.y - 31); ctx.lineTo(p.x, p.y - 15); ctx.fill(); ctx.fillStyle = '#5b3d22'; ctx.beginPath(); ctx.moveTo(p.x - 14, p.y - 40); ctx.lineTo(p.x + 12, p.y - 43); ctx.lineTo(p.x + 7, p.y - 45); ctx.lineTo(p.x + 1, p.y - 56); ctx.lineTo(p.x - 7, p.y - 44); ctx.fill(); }
+  if (n.id === 'veyra') { ctx.fillStyle = '#8c929c'; ctx.fillRect(p.x - 9, p.y - 42, 18, 6); ctx.fillStyle = '#3a3f48'; ctx.fillRect(p.x - 4, p.y - 34, 2, 2); ctx.fillRect(p.x + 2, p.y - 34, 2, 2); }
+  ctx.font = 'bold 12px system-ui'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000';
+  ctx.strokeText(n.name, p.x, p.y - 62); ctx.fillStyle = '#9fe7ff'; ctx.fillText(n.name, p.x, p.y - 62);
+  ctx.font = '14px system-ui'; ctx.fillText('💬', p.x, p.y - 76 + Math.sin(t / 300) * 2);
 }
 function drawPlayer(o, t) {
   const p = iso(o.rx, o.ry), mine = o.id === myId;

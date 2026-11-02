@@ -6,6 +6,11 @@
   #login{position:fixed;inset:0;display:flex;flex-direction:column;gap:12px;align-items:center;justify-content:center;background:#10141aee;z-index:20}
   #login h1{margin:0;font-size:28px;letter-spacing:1px}
   #login input[type=password]{font-size:18px;padding:12px 14px;border-radius:10px;border:1px solid #3a4658;background:#1a212b;color:#fff;width:240px;text-align:center;user-select:text;-webkit-user-select:text}
+  #dlg{position:fixed;left:50%;bottom:10px;transform:translateX(-50%);width:min(560px,calc(100% - 16px));max-height:62vh;overflow:auto;background:#10161fee;border:1px solid #4a5d7c;border-radius:14px;padding:12px 14px;z-index:25;display:none;font-size:14px}
+  #dlg .nm{font-weight:700;font-size:16px;color:#9fe7ff}
+  #dlg .tt{font-size:12px;opacity:.7;margin-bottom:6px}
+  #dlg .tx{white-space:pre-line;line-height:1.4;margin-bottom:8px}
+  #dlg .op{display:flex;flex-wrap:wrap;gap:6px}
   #chars{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:#10141af2;z-index:21;padding:16px}
   #chars .row2{display:flex;gap:8px;width:min(340px,100%)}
   #chars .row2 button.sel{flex:1;text-align:left;padding:10px 12px}
@@ -83,6 +88,7 @@
 
 <div id="login">
   <h1>⚔️ Reinos de Plata</h1>
+  <div style="opacity:.8;font-size:14px;text-align:center;max-width:280px;font-style:italic">En el mundo de Aurelia nadie nace sin un don. Aquel que cree sin límites podrá igualar a los dioses, si antes no se destruye a sí mismo.</div>
   <div style="opacity:.8;font-size:14px;text-align:center;max-width:280px">Recolecta, fabrica, comercia y sobrevive en la zona de la muerte. (Modo sin conexión: juegas tú solo y se guarda en este dispositivo.)</div>
   <input id="uname" maxlength="12" placeholder="Nombre de usuario" autocomplete="username">
   <input id="upass" type="password" maxlength="40" placeholder="Contraseña" autocomplete="current-password">
@@ -120,6 +126,7 @@
 <button id="bEnter" style="display:none"></button>
 <div id="topbtns"><button id="bBag">🎒 Menú</button><button id="bChat">💬</button><button id="bSnd">🔊</button></div>
 <div id="chatlog"></div>
+<div id="dlg"><div class="nm" id="dName"></div><div class="tt" id="dTitle"></div><div class="tx" id="dText"></div><div class="op" id="dOpts"></div></div>
 
 <div id="pbtns"><button id="bP0">＋</button><button id="bP1">＋</button><button id="bP2">＋</button></div>
 <div id="pad"><div id="knob"></div></div>
@@ -249,6 +256,7 @@ module.exports = { TREE, FORJA_REFUND, PARTS, MOD_MAX, MOD_COST, POWER_MIN_CD, P
   powerBudget, cleanPower, defaultPowerName, powerCost, powerStats };
 
 return module.exports; })();
+const SOLO = true;
 const TICK = 50;             // 20 Hz
 const SPEED = 4.5;           // tiles/seg
 // Razas: cada una da pequeñas ventajas y desventajas (hp/mp: vida y energía base, dmg: daño base, spd: velocidad, xp: experiencia, gat: prob. de recolección extra).
@@ -260,43 +268,69 @@ const RACES = {
   felino: { name: 'Felino', ico: '🐱', desc: '+12% velocidad · −10 vida', hp: -10, mp: 0, dmg: 0, spd: 1.12, xp: 1, gat: 0 },
 };
 const MAX_CHARS = 3;
+// Nombres: únicos (sin distinguir mayúsculas ni acentos). "Kaito X" está reservado para el dueño del juego (variable OWNER_ACCOUNT = nombre de su cuenta;
+// en el modo sin conexión eres tú). Los nombres de los personajes de la historia no los puede usar nadie.
+const OWNER_ACCOUNT = (typeof process !== 'undefined' && process.env && process.env.OWNER_ACCOUNT || '').trim();
+const SOLO_MODE = typeof SOLO !== 'undefined' && SOLO;
+const nk = (n) => String(n || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '') || String(n || '').toLowerCase();
+const RESERVED_NPC = ['veyra', 'mirei', 'orionvael', 'orion', 'dorkan', 'nyx', 'garrick', 'seraphine', 'hombresinnombre', 'quintocreador'];
+const reservedName = (n, loginName) => {
+  if (RESERVED_NPC.includes(nk(n))) return true;
+  if (nk(n).includes('kaito')) return !(SOLO_MODE || (OWNER_ACCOUNT && nk(loginName) === nk(OWNER_ACCOUNT)));
+  return false;
+};
+// Historia: los villanos del libro son los jefes del mundo. Derrotar a cada uno por primera vez da una recompensa.
+const STORY = [
+  { nm: 'Dorkan el Quebrantahuesos', where: 'Zona de la muerte', lvl: 5, rew: { silver: 250, xp: 150, nucleo: 3 }, text: 'Un gigante cuyo don es volverse más duro con cada golpe recibido. Ya derribó un edificio, tres puentes y el orgullo de seis héroes.' },
+  { nm: 'Garrick el Eterno', where: 'Tundra helada', lvl: 12, rew: { silver: 500, xp: 300, nucleo: 4 }, text: 'No puede morir, así que no intentes matarlo. Derrótalo y deja que el tedio haga el resto.' },
+  { nm: 'Seraphine la Voz', where: 'Desierto de cristal', lvl: 18, rew: { silver: 800, xp: 500, nucleo: 5 }, text: 'Cada palabra suya es una orden. Acercarse sin obedecerla requiere ingenio... o silencio.' },
+  { nm: 'Nyx, la Reina del Vacío', where: 'Ruinas de Calderón', lvl: 25, rew: { silver: 1200, xp: 800, nucleo: 6 }, text: 'Borra de la existencia todo lo que toca. El vacío no se vence con materia: se vence con significado.' },
+  { nm: 'El Hombre Sin Nombre', where: 'Valle volcánico (Eldoria)', lvl: 30, rew: { silver: 2000, xp: 1300, nucleo: 8 }, text: 'Nadie recuerda su rostro cinco segundos después de verlo. Tiene todas las caras. Tiene la tuya.' },
+  { nm: 'El Quinto Creador', where: 'Ruinas del Alba (Eldoria)', lvl: 35, rew: { silver: 3500, xp: 2200, nucleo: 12 }, text: 'El Gran Villano más antiguo, el que creó a los otros cuatro. Algo antiguo despertó en algún lugar muy lejos.' },
+];
 // Mapas. La ciudad es el lobby (zona principal, segura): ahí apareces y reapareces. Su puerta lleva al mundo de enemigos
 // (zona de la muerte). Al llegar al borde de un mapa pasas al mapa vecino (links). Los edificios abren su menú al acercarte.
 const MAPDEF = {
-  lobby: { name: 'Ciudad de Aurora', W: 44, H: 40, safe: true, biome: 'city', spawn: [6, 20],
+  lobby: { name: 'Aurelia', W: 44, H: 40, safe: true, biome: 'city', spawn: [6, 20],
     buildings: [
       { id: 'herreria', name: 'Herrería', x: 8, y: 10, w: 4, d: 3, h: 46, roof: '#b5651d', tab: 'craft' },
       { id: 'mercado',  name: 'Mercado',  x: 8, y: 26, w: 4, d: 3, h: 40, roof: '#2f8f8f', tab: 'market' },
       { id: 'torre',    name: 'Torre de poderes', x: 18, y: 12, w: 3, d: 3, h: 84, roof: '#7a4bd1', tab: 'powers' },
       { id: 'salon',    name: 'Salón de habilidades', x: 18, y: 26, w: 3, d: 3, h: 52, roof: '#3f7fe0', tab: 'tree' },
+      { id: 'academia', name: 'Gran Academia de Héroes', x: 19, y: 1.5, w: 12, d: 4, h: 96, roof: '#6d3fb5', tab: null },
       { id: 'tablon',   name: 'Tablón de misiones', x: 28, y: 12, w: 3, d: 2, h: 44, roof: '#c9a227', tab: 'quests' },
       { id: 'puerta',   name: 'Puerta de la zona de la muerte', x: 41.6, y: 16, w: 1.4, d: 8, h: 70, roof: '#7a1f1f', tab: null, solid: false },
     ],
+    npcs: [
+      { id: 'veyra', name: 'Veyra', title: 'Examinadora de la Gran Academia', x: 26, y: 9, look: ['hielo', 0, 0, 1, 'humano'] },
+      { id: 'mirei', name: 'Mirei', title: 'Heroína de rango A · luz solidificada', x: 14.5, y: 19.5, look: ['rayo', 1, 0, 2, 'humano'] },
+      { id: 'orion', name: 'Orion Vael', title: 'El último Creador antes que tú', x: 23, y: 17.5, look: ['tierra', 0, 0, 4, 'humano'] },
+    ],
     links: [{ side: 'e', min: 16, max: 24, to: 'muerte' }] },
-  muerte: { tier: 1, name: 'Zona de la muerte', W: 120, H: 120, biome: 'death', hp: 60, dmg: 8, rew: 1, core: 0.3, mobs: 55, tree: 150, rock: 90, ore: 80,
+  muerte: { tier: 1, boss: 'Dorkan el Quebrantahuesos', name: 'Zona de la muerte', W: 120, H: 120, biome: 'death', hp: 60, dmg: 8, rew: 1, core: 0.3, mobs: 55, tree: 150, rock: 90, ore: 80,
     links: [{ side: 'w', to: 'lobby' }, { side: 'n', to: 'bosque' }, { side: 's', to: 'hielo' }, { side: 'e', to: 'desierto' }] },
-  bosque: { tier: 1, name: 'Bosque encantado', W: 100, H: 100, biome: 'forest', hp: 40, dmg: 5, rew: 0.7, core: 0.12, mobs: 35, tree: 320, rock: 40, ore: 20,
+  bosque: { tier: 1, boss: 'El Pato Gigante', name: 'Bosque encantado', W: 100, H: 100, biome: 'forest', hp: 40, dmg: 5, rew: 0.7, core: 0.12, mobs: 35, tree: 320, rock: 40, ore: 20,
     links: [{ side: 's', to: 'muerte' }] },
-  hielo: { tier: 2, name: 'Tundra helada', W: 100, H: 100, biome: 'ice', hp: 90, dmg: 11, rew: 1.5, core: 0.4, mobs: 45, tree: 60, rock: 150, ore: 110,
+  hielo: { tier: 2, boss: 'Garrick el Eterno', name: 'Tundra helada', W: 100, H: 100, biome: 'ice', hp: 90, dmg: 11, rew: 1.5, core: 0.4, mobs: 45, tree: 60, rock: 150, ore: 110,
     links: [{ side: 'n', to: 'muerte' }] },
-  desierto: { tier: 3, name: 'Desierto de cristal', W: 110, H: 110, biome: 'desert', hp: 110, dmg: 13, rew: 2, core: 0.45, mobs: 45, tree: 20, rock: 170, ore: 140,
+  desierto: { tier: 3, boss: 'Seraphine la Voz', name: 'Desierto de cristal', W: 110, H: 110, biome: 'desert', hp: 110, dmg: 13, rew: 2, core: 0.45, mobs: 45, tree: 20, rock: 170, ore: 140,
     links: [{ side: 'w', to: 'muerte' }, { side: 'e', to: 'ruinas' }] },
-  ruinas: { tier: 4, name: 'Ruinas arcanas', W: 100, H: 100, biome: 'ruins', hp: 170, dmg: 18, rew: 3, core: 0.7, mobs: 40, tree: 30, rock: 120, ore: 160,
+  ruinas: { tier: 4, boss: 'Nyx, la Reina del Vacío', name: 'Ruinas de Calderón', W: 100, H: 100, biome: 'ruins', hp: 170, dmg: 18, rew: 3, core: 0.7, mobs: 40, tree: 30, rock: 120, ore: 160,
     links: [{ side: 'w', to: 'desierto' }] },
 };
 // Continente de Eldoria: mundo enorme (360x360) dividido en 9 regiones con clima y dificultad propios.
 // Los Maestros de vuelo (edificios dorados) permiten viajar volando entre regiones y mapas, como en WoW.
 const TIERS = { 1: { hp: 45, dmg: 6, rew: 0.8, core: 0.15 }, 2: { hp: 80, dmg: 10, rew: 1.3, core: 0.3 }, 3: { hp: 120, dmg: 14, rew: 2, core: 0.45 }, 4: { hp: 170, dmg: 19, rew: 3, core: 0.6 } };
-const FLIGHTS = [{ id: 'aurora', name: 'Ciudad de Aurora', map: 'lobby', x: 29.5, y: 31.5 }];
+const FLIGHTS = [{ id: 'aurora', name: 'Aurelia', map: 'lobby', x: 29.5, y: 31.5 }];
 const FLIGHT_START = ['aurora', 'eld_plains'];
 MAPDEF.lobby.buildings.splice(MAPDEF.lobby.buildings.length - 1, 0, { id: 'vuelo', name: 'Maestro de vuelo', x: 28, y: 28.5, w: 3, d: 2, h: 50, roof: '#d9a441', tab: 'fly' });
 MAPDEF.bosque.links.push({ side: 'n', to: 'eldoria' });
 MAPDEF.eldoria = { tier: 1, name: 'Continente de Eldoria', W: 360, H: 360, biome: 'plains', regions: [], buildings: [], links: [{ side: 's', to: 'bosque' }] };
-[[0, 0, 'Cumbres nevadas', 'ice', 4, { tree: 8, rock: 60, ore: 45 }], [1, 0, 'Montañas de hierro', 'mount', 2, { tree: 25, rock: 70, ore: 55 }], [2, 0, 'Pantano de la niebla', 'swamp', 3, { tree: 80, rock: 25, ore: 30 }],
- [0, 1, 'Bosque de Aldea', 'forest', 1, { tree: 110, rock: 20, ore: 10 }], [1, 1, 'Llanuras de Eldoria', 'plains', 1, { tree: 50, rock: 35, ore: 15 }], [2, 1, 'Desierto escarlata', 'desert', 3, { tree: 8, rock: 60, ore: 50 }],
- [0, 2, 'Costa cristalina', 'beach', 2, { tree: 40, rock: 40, ore: 25 }], [1, 2, 'Valle volcánico', 'volcano', 4, { tree: 6, rock: 60, ore: 60 }], [2, 2, 'Ruinas del Alba', 'ruins', 4, { tree: 12, rock: 55, ore: 55 }]].forEach(([cx, cy, name, biome, tier, res]) => {
+[[0, 0, 'Cumbres nevadas', 'ice', 4, { tree: 8, rock: 60, ore: 45 }, 'El Yunque Colosal'], [1, 0, 'Montañas de hierro', 'mount', 2, { tree: 25, rock: 70, ore: 55 }, 'Gólem de Dorkan'], [2, 0, 'Pantano de la niebla', 'swamp', 3, { tree: 80, rock: 25, ore: 30 }, 'El Pato Devoramesas'],
+ [0, 1, 'Bosque de Aldea', 'forest', 1, { tree: 110, rock: 20, ore: 10 }, 'Sombra de Nyx'], [1, 1, 'Llanuras de Eldoria', 'plains', 1, { tree: 50, rock: 35, ore: 15 }, 'El Pato Gigante Mayor'], [2, 1, 'Desierto escarlata', 'desert', 3, { tree: 8, rock: 60, ore: 50 }, 'Eco de Seraphine'],
+ [0, 2, 'Costa cristalina', 'beach', 2, { tree: 40, rock: 40, ore: 25 }, 'Leviatán de Ramen'], [1, 2, 'Valle volcánico', 'volcano', 4, { tree: 6, rock: 60, ore: 60 }, 'El Hombre Sin Nombre'], [2, 2, 'Ruinas del Alba', 'ruins', 4, { tree: 12, rock: 55, ore: 55 }, 'El Quinto Creador']].forEach(([cx, cy, name, biome, tier, res, boss]) => {
   const x0 = cx * 120, y0 = cy * 120, mx = x0 + 60, my = y0 + 60;
-  MAPDEF.eldoria.regions.push({ x0, y0, x1: x0 + 120, y1: y0 + 120, name, biome, tier, res, mobs: 40, node: [mx, my + 3.5] });
+  MAPDEF.eldoria.regions.push({ x0, y0, x1: x0 + 120, y1: y0 + 120, name, biome, tier, res, boss, mobs: 40, node: [mx, my + 3.5] });
   MAPDEF.eldoria.buildings.push({ id: 'vuelo_' + biome, name: 'Maestro de vuelo · ' + name, x: mx - 1.5, y: my - 1, w: 3, d: 2, h: 50, roof: '#d9a441', tab: 'fly' });
   FLIGHTS.push({ id: 'eld_' + biome, name: name, map: 'eldoria', x: mx, y: my + 3.5 });
 });
@@ -363,11 +397,11 @@ for (const id in MAPDEF) {
       w.mobs.push({ id: newId(), w: id, k, tier: R.tier, sp: K.sp, ag: K.ag, x, y, hx: x, hy: y, hp, mhp: hp, dmg: Math.round(T.dmg * K.dmg), rew: T.rew * K.rew, core: T.core, rt: 15000, alive: true, respawn: 0, cd: 0 });
     }
     const K = KINDS.jef, hp = Math.round(T.hp * K.hp), x = bx + 25, y = by - 25;
-    w.mobs.push({ id: newId(), w: id, k: 'jef', tier: R.tier, sp: K.sp, ag: K.ag, x, y, hx: x, hy: y, hp, mhp: hp, dmg: Math.round(T.dmg * K.dmg), rew: T.rew * K.rew, core: 1, rt: 180000, alive: true, respawn: 0, cd: 0, sc: 0 });
+    w.mobs.push({ id: newId(), w: id, k: 'jef', nm: R.boss, tier: R.tier, sp: K.sp, ag: K.ag, x, y, hx: x, hy: y, hp, mhp: hp, dmg: Math.round(T.dmg * K.dmg), rew: T.rew * K.rew, core: 1, rt: 180000, alive: true, respawn: 0, cd: 0, sc: 0 });
   }
   if (!d.safe && !d.regions) {   // jefe en el centro del mapa
     const K = KINDS.jef, hp = Math.round(d.hp * K.hp), x = w.W / 2, y = w.H / 2;
-    w.mobs.push({ id: newId(), w: id, k: 'jef', tier: d.tier || 1, sp: K.sp, ag: K.ag, x, y, hx: x, hy: y, hp, mhp: hp, dmg: Math.round(d.dmg * K.dmg), rew: d.rew * K.rew, core: 1, rt: 120000, alive: true, respawn: 0, cd: 0, sc: 0 });
+    w.mobs.push({ id: newId(), w: id, k: 'jef', nm: d.boss || 'Jefe', tier: d.tier || 1, sp: K.sp, ag: K.ag, x, y, hx: x, hy: y, hp, mhp: hp, dmg: Math.round(d.dmg * K.dmg), rew: d.rew * K.rew, core: 1, rt: 120000, alive: true, respawn: 0, cd: 0, sc: 0 });
   }
 }
 const players = new Map(); // ws -> player
@@ -412,7 +446,7 @@ const flightCost = (from, to) => (from.map !== to.map ? 15 : 3 + Math.round(dist
 function enterMap(p, id, x, y) {
   const w = worlds[id]; p.map = id; p.x = x; p.y = y; p.dx = 0; p.dy = 0; p.slowUntil = 0; p.dirty = true;
   send(p.ws, { t: 'init', id: p.id, nm: p.acct.name, map: id, mapName: w.name, biome: w.biome, safe: !!w.safe, W: w.W, H: w.H, recipes: RECIPES, items: ITEMS, pp: POWER_INIT,
-    city: w.buildings ? { buildings: w.buildings } : null, regions: w.regions ? w.regions.map((r) => ({ x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1, name: r.name, biome: r.biome, tier: r.tier })) : null,
+    city: w.buildings ? { buildings: w.buildings } : null, npcs: (w.npcs || []).map((n) => ({ id: n.id, name: n.name, title: n.title, x: n.x, y: n.y, look: n.look })), regions: w.regions ? w.regions.map((r) => ({ x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1, name: r.name, biome: r.biome, tier: r.tier })) : null,
     links: (w.links || []).map((l) => ({ side: l.side, min: l.min, max: l.max, to: worlds[l.to].name })), res: w.res.map((r) => ({ id: r.id, t: r.t, x: r.x, y: r.y })) });
 }
 const spawnIn = () => { const d = MAPDEF.lobby; return [d.spawn[0] + rnd() * 4, d.spawn[1] - 2 + rnd() * 4]; };
@@ -467,7 +501,16 @@ function questsOf(a) {
   return a.quests;
 }
 function qprog(p, k, n) { for (const q of questsOf(p.acct)) if (q.k === k && q.got < q.n) { q.got = Math.min(q.n, q.got + n); p.dirty = true; } }
+function storyKill(p, nm) {
+  const ch = STORY.find((c) => c.nm === nm), a = p.acct;
+  if (!ch) return;
+  a.bossDone = a.bossDone || {};
+  if (a.bossDone[nm]) return;
+  a.bossDone[nm] = 1; a.silver += ch.rew.silver; addXp(p, ch.rew.xp); addItem(a, 'nucleo', ch.rew.nucleo); p.dirty = true;
+  send(p.ws, { t: 'msg', m: '📖 Historia: derrotaste a ' + nm + ' (+' + ch.rew.silver + ' plata, +' + ch.rew.nucleo + ' núcleos)' });
+}
 function hurtMob(m, amt, killer, crit) {
+  if (Date.now() < (killer.ramenUntil || 0)) amt = Math.round(amt * 1.1);
   amt = Math.round(amt * (1 + gearStat(killer.acct).dmg));
   m.hp -= amt;
   events.push({ w: m.w, t: 'dmg', x: m.x, y: m.y, v: amt, c: crit ? 1 : 0 });
@@ -488,7 +531,7 @@ function hurtMob(m, amt, killer, crit) {
       else { a.gear.push(g); send(killer.ws, { t: 'msg', m: 'Botín: ' + g.name + ' (' + RARS[g.rar].n + ')' }); }
     }
     qprog(killer, 'kill', 1); if (m.k === 'jef') qprog(killer, 'boss', 1);
-    if (m.k === 'jef') broadcast({ t: 'msg', m: killer.acct.name + ' derrotó al jefe de ' + worlds[m.w].name + '!' });
+    if (m.k === 'jef') { broadcast({ t: 'msg', m: killer.acct.name + ' derrotó a ' + m.nm + '!' }); storyKill(killer, m.nm); for (const q of partyMates(killer)) if (q.map === killer.map && dist(q, killer) < 40) storyKill(q, m.nm); }
     else if (killer.combo >= 3 && killer.combo % 3 === 0) send(killer.ws, { t: 'msg', m: 'Racha x' + killer.combo + ' (+' + Math.round((bonus - 1) * 100) + '% botín)' });
   }
 }
@@ -548,6 +591,52 @@ function castPower(p, ws, slot, now) {
   p.dirty = true;
 }
 
+// ---------- NPC de la historia (Veyra, Mirei, Orion Vael) ----------
+const RANKS = [1, 5, 10, 15, 20, 25, 30];
+const rankOf = (a) => (nk(a.name).includes('kaito') ? '∞' : 'FEDCBAS'[RANKS.reduce((r, t, k) => (a.lvl >= t ? k : r), 0)]);
+function npcDlg(p, id, opt) {
+  const a = p.acct, npc = (MAPDEF.lobby.npcs || []).find((n) => n.id === id);
+  if (!npc) return null;
+  const D = (text, opts) => ({ t: 'dlg', id, name: npc.name, title: npc.title, text, opts: (opts || []).concat([{ k: 'bye', l: 'Adiós' }]) });
+  if (opt === 'bye') return { t: 'dlg', id, close: true };
+  if (id === 'veyra') {
+    const main = [{ k: 'rank', l: '¿Cuál es mi rango?' }, { k: 'academy', l: '¿Qué es la Gran Academia?' }];
+    if (opt === 'rank') {
+      if (nk(a.name).includes('kaito')) return D('—Rango: INDETERMINADO. Por primera vez en la historia, la Academia aceptó a un estudiante sin saber qué era. Es usted insoportable... y necesario.', [{ k: 'main', l: 'Volver' }]);
+      const next = RANKS.find((t) => t > a.lvl);
+      return D('—Su rango actual es ' + rankOf(a) + ' (nivel ' + a.lvl + '). Rango F para los más débiles, Rango S para los legendarios.' + (next ? ' Alcanzará el siguiente rango en el nivel ' + next + '.' : ' Ha alcanzado el rango más alto.'), [{ k: 'main', l: 'Volver' }]);
+    }
+    if (opt === 'academy') return D('—La Gran Academia de Héroes mide y registra los dones de todo Aurelia. Unos controlan el fuego, otros hablan con las tormentas. Y los libros antiguos mencionan un don que nadie ha visto en trescientos años: la Creación.', [{ k: 'main', l: 'Volver' }]);
+    return D('—Silencio, aspirante. Soy la examinadora Veyra. Detecto mentiras, así que sea breve.', main);
+  }
+  if (id === 'mirei') {
+    const main = [{ k: 'heal', l: 'Curarme (gratis)' }, { k: 'ramen', l: 'Ramen con sal (12 🪙)' }, { k: 'kaito', l: '¿Quién es Kaito X?' }];
+    if (opt === 'heal') { p.hp = mhpOf(a); p.mp = mmpOf(a); p.dirty = true; return D('—Come algo, estás pálido. (Recuperas toda tu vida y energía.)', [{ k: 'main', l: 'Volver' }]); }
+    if (opt === 'ramen') {
+      if (a.silver < 12) return D('—Te faltan monedas. Vuelve cuando tengas 12 de plata.', [{ k: 'main', l: 'Volver' }]);
+      a.silver -= 12; p.hp = mhpOf(a); p.mp = mmpOf(a); p.ramenUntil = Date.now() + 120000; p.dirty = true;
+      return D('—Le puse sal. (Vida y energía al máximo y +10% de daño durante 2 minutos.)', [{ k: 'main', l: 'Volver' }]);
+    }
+    if (opt === 'kaito') return D('—Kaito X es insoportable, presumido y cree que el mundo gira a su alrededor. Pero es el primero en correr hacia el peligro. Alguien tiene que vigilarlo... y ponerle sal al ramen.', [{ k: 'main', l: 'Volver' }]);
+    return D('—Hola. Soy Mirei, rango A, con el don de la luz solidificada. Alguien tiene que cuidar de los novatos y evitar que hagan una locura.', main);
+  }
+  // Orion Vael
+  a.bossDone = a.bossDone || {};
+  const back = [{ k: 'main', l: 'Volver' }];
+  if (opt === 'rule') return D('—Primera regla de la Creación: crear nunca es gratis. Cada cosa que haces sale de ti: de tu energía, tu memoria y tu vida. Y por favor, deja de crear patos. Los patos se comen las mesas.', back);
+  if (opt === 'book') {
+    const done = STORY.filter((c) => a.bossDone[c.nm]).length;
+    const lines = STORY.map((c) => (a.bossDone[c.nm] ? '✔ ' : '✘ ') + c.nm + ' — ' + c.where + ' (nivel ' + c.lvl + '+)').join('\n');
+    const tail = done === STORY.length ? '\n\n—Los grandes villanos han caído. Pero esto no ha terminado: Kaito X regresará en "El Quinto Creador".' : '\n\n—Elige uno para leer lo que anoté sobre él.';
+    return D('—En esta libreta escribí todo lo que descubrí. Los Grandes Villanos de Aurelia (' + done + '/' + STORY.length + ' derrotados):\n' + lines + tail, STORY.map((c, i) => ({ k: 'v' + i, l: c.nm })).concat(back));
+  }
+  if (/^v\d$/.test(opt || '')) {
+    const c = STORY[+opt.slice(1)];
+    if (c) return D('—' + c.nm + '. ' + c.text + '\n\nLo encontrarás en: ' + c.where + '. Nivel recomendado: ' + c.lvl + '. Recompensa la primera vez: ' + c.rew.silver + ' plata, ' + c.rew.nucleo + ' núcleos y ' + c.rew.xp + ' de experiencia.' + (a.bossDone[c.nm] ? '\n\n(Ya lo derrotaste.)' : ''), [{ k: 'book', l: 'Volver a la libreta' }]);
+  }
+  return D('—Soy Orion Vael, el último Creador antes que tú. Y tú, muchacho, tienes un problema... o una gran aventura. Elige.', [{ k: 'book', l: 'La libreta de Orion (historia)' }, { k: 'rule', l: 'La primera regla de la Creación' }]);
+}
+
 // ---------- mensajes del cliente ----------
 const lastChat = new WeakMap();
 function handle(ws, p, msg) {
@@ -574,6 +663,13 @@ function handle(ws, p, msg) {
       p.flight = { to: f, from: { x: p.x, y: p.y }, t0: now, dur: cross ? 5000 : Math.max(3, Math.min(20, dist(here, f) / 20)) * 1000, cross };
       p.mounted = false; p.dx = 0; p.dy = 0; p.dirty = true;
       send(ws, { t: 'msg', m: 'Vuelas hacia: ' + f.name });
+      break;
+    }
+    case 'talk': case 'talkopt': {
+      const npc = (MAPDEF.lobby.npcs || []).find((n) => n.id === msg.id);
+      if (!npc || p.map !== 'lobby' || dist(p, npc) > 5) return;
+      const d = npcDlg(p, npc.id, msg.t === 'talk' ? 'main' : String(msg.opt || '').slice(0, 8));
+      if (d) send(ws, d);
       break;
     }
     case 'mount': {
@@ -830,7 +926,8 @@ function makeSession(ws) {
       if (pass.length < 4 || pass.length > 40) return err('La contraseña debe tener al menos 4 caracteres');
       const ex = hasOwn(accounts, name) ? accounts[name] : null;
       if (msg.t === 'register') {
-        if (ex) return err('Ese nombre ya existe. Usa Entrar.');
+        if (ex || Object.keys(accounts).some((k) => nk(k) === nk(name))) return err('Ese nombre ya existe. Usa Entrar.');
+        if (reservedName(name, name)) return err('Ese nombre está reservado. Elige otro.');
         login = getAcct(name); login.salt = newSalt(); login.hash = hashPass(pass, login.salt); save();
       } else {
         if (!ex || ex.owner) return err('Esa cuenta no existe. Usa Crear cuenta.');
@@ -850,7 +947,8 @@ function makeSession(ws) {
       if (!hasOwn(Pw.PARTS.src, power)) return err('Elige un poder');
       if (!hasOwn(RACES, race)) return err('Elige una raza');
       const reuse = cname === login.name && !login.char && !list.length;   // el primer personaje puede llevar el nombre de la cuenta
-      if (hasOwn(accounts, cname) && !reuse) return err('Ese nombre de personaje ya está en uso');
+      if (reservedName(cname, login.name)) return err('Ese nombre está reservado. Elige otro.');
+      if (Object.keys(accounts).some((k) => nk(k) === nk(cname) && !(reuse && k === login.name))) return err('Ese nombre de personaje ya está en uso');
       const rec = reuse ? login : getAcct(cname);
       if (!reuse) rec.owner = login.name;
       rec.char = { power, race, aura: msg.aura ? 1 : 0, tone: Math.max(0, Math.min(3, Math.floor(+msg.tone) || 0)), cloth: Math.max(0, Math.min(4, Math.floor(+msg.cloth) || 0)) };
@@ -980,7 +1078,7 @@ function tick() {
     const snaps = {};
     for (const id in byMap) {
       const w = worlds[id];
-      snaps[id] = { p: byMap[id].map(pv), m: w.mobs.filter((m) => m.alive).map((m) => ({ id: m.id, k: m.k, x: +m.x.toFixed(2), y: +m.y.toFixed(2), hp: m.hp, mh: m.mhp, fl: flagsOf(m, now) })),
+      snaps[id] = { p: byMap[id].map(pv), m: w.mobs.filter((m) => m.alive).map((m) => ({ id: m.id, k: m.k, nm: m.nm, x: +m.x.toFixed(2), y: +m.y.toFixed(2), hp: m.hp, mh: m.mhp, fl: flagsOf(m, now) })),
         d: w.res.filter((r) => !r.alive).map((r) => ({ id: r.id, x: r.x, y: r.y })), b: w.bags.map((b) => ({ id: b.id, x: b.x, y: b.y })), e: evs[id] || [] };
     }
     for (const [ws, p] of players) {
@@ -993,7 +1091,7 @@ function tick() {
         p.dirty = false;
         send(ws, { t: 'me', inv: p.acct.inv, silver: p.acct.silver, xp: p.acct.xp, lvl: p.acct.lvl,
           hp: Math.round(p.hp), mh: mhpOf(p.acct), mp: Math.round(p.mp), mm: mmpOf(p.acct), nx: p.acct.lvl * 40,
-          tr: p.acct.trades || {}, pw: powersView(p.acct), bar: p.acct.bar || [null, null, null], pb: Pw.powerBudget(p.acct.lvl), cb: p.combo || 0, qs: questsOf(p.acct), up: p.acct.up || {}, fv: p.flight ? p.flight.to.name : null, fly: { near: !!flightHere(p) && !p.flight, list: FLIGHTS.filter((f) => fpOf(p.acct).includes(f.id)).map((f) => ({ id: f.id, name: f.name, mapName: worlds[f.map].name, cost: flightCost(p, f), here: f.map === p.map && dist(p, f) < 6 })) }, gear: p.acct.gear || [], eq: p.acct.eq || {}, gst: gearStat(p.acct), gmax: GEAR_MAX, mt: p.mounted ? 1 : 0, pty: partyMates(p).map((m) => ({ n: m.acct.name, hp: Math.round(m.hp), mh: mhpOf(m.acct), l: m.acct.lvl })), upm: UP_MAX, upc: [0, 1, 2, 3, 4].map(upCost) });
+          tr: p.acct.trades || {}, pw: powersView(p.acct), bar: p.acct.bar || [null, null, null], pb: Pw.powerBudget(p.acct.lvl), cb: p.combo || 0, qs: questsOf(p.acct), up: p.acct.up || {}, rk: rankOf(p.acct), fv: p.flight ? p.flight.to.name : null, fly: { near: !!flightHere(p) && !p.flight, list: FLIGHTS.filter((f) => fpOf(p.acct).includes(f.id)).map((f) => ({ id: f.id, name: f.name, mapName: worlds[f.map].name, cost: flightCost(p, f), here: f.map === p.map && dist(p, f) < 6 })) }, gear: p.acct.gear || [], eq: p.acct.eq || {}, gst: gearStat(p.acct), gmax: GEAR_MAX, mt: p.mounted ? 1 : 0, pty: partyMates(p).map((m) => ({ n: m.acct.name, hp: Math.round(m.hp), mh: mhpOf(m.acct), l: m.acct.lvl })), upm: UP_MAX, upc: [0, 1, 2, 3, 4].map(upCost) });
       }
     }
   }
@@ -1032,7 +1130,7 @@ const players = new Map(), mobs = new Map();
 let bags = [], fx = [], me = { inv: {}, silver: 0, xp: 0, lvl: 1, hp: 100, mh: 100, mp: 50, mm: 50, nx: 40 };
 let market = [], zoomK = 1;
 let cd = { sk: 0, dash: 0, atk: 0 };
-let city = null, enterTab = null, pInvite = null;
+let city = null, enterTab = null, enterNpc = null, pInvite = null, npcs = [];
 let pp = null, cdP = [0, 0, 0], prev = null, prevT = null, lastPSig = '';
 let draft = { name: '', src: 'fuego', shape: 'proyectil', eff: 'dano', mods: { alcance: 0, potencia: 0, rapidez: 0, eficiencia: 0 } };
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1072,7 +1170,7 @@ const send = (o) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o));
 function onMsg(m) {
   switch (m.t) {
     case 'init':
-      myId = m.id; window.myName = m.nm; W = m.W; H = m.H; mapName = m.mapName; biome = m.biome; safe = m.safe; links = m.links || []; regions = m.regions || null; recipes = m.recipes; items = m.items; resList = m.res; pp = m.pp;
+      myId = m.id; window.myName = m.nm; W = m.W; H = m.H; mapName = m.mapName; biome = m.biome; safe = m.safe; links = m.links || []; regions = m.regions || null; npcs = m.npcs || []; closeDlg(); recipes = m.recipes; items = m.items; resList = m.res; pp = m.pp;
       players.clear(); mobs.clear(); bags = []; fx = []; deadRes = new Set();
       city = m.city; document.getElementById('login').style.display = 'none'; document.getElementById('creator').style.display = 'none'; break;
     case 'auth': pp = m.pp; races = m.races; chars = m.chars; maxChars = m.max; if (m.created) send({ t: 'join', name: m.created }); else if (chars.length) showChars(); else showCreator(); break;
@@ -1084,7 +1182,8 @@ function onMsg(m) {
       if (panelOpen) { if (tab === 'powers') { if (powersSig() !== lastPSig) renderPanel(); } else renderPanel(); } break;
     case 'pprev': prev = m.r; updatePrev(); break;
     case 'market': market = m.list; if (panelOpen && tab === 'market') renderPanel(); break;
-    case 'msg': toast(m.m); if (/^Botín|Misión cumplida|Soltó|mejorada a/.test(m.m)) sfx('item'); else if (/Invasión|derrotó al jefe/.test(m.m)) sfx('alarm'); else if (/^Entras a|^Vuelas hacia|^Llegaste a/.test(m.m)) sfx('portal'); else if (/Descubriste/.test(m.m)) sfx('item'); break;
+    case 'dlg': showDlg(m); break;
+    case 'msg': toast(m.m); if (/^Botín|Misión cumplida|Soltó|mejorada a/.test(m.m)) sfx('item'); else if (/Invasión|derrotó a /.test(m.m)) sfx('alarm'); else if (/^Entras a|^Vuelas hacia|^Llegaste a/.test(m.m)) sfx('portal'); else if (/Descubriste/.test(m.m)) sfx('item'); break;
     case 'pinv': pInvite = m.from; toast(m.from + ' te invita a su grupo: abre Menú > Grupo o escribe /aceptar', 6000); if (panelOpen && tab === 'party') renderPanel(); break;
     case 'chat': {
       const d = document.createElement('div'); d.textContent = m.n + ': ' + m.m;
@@ -1239,7 +1338,16 @@ function syncSnd() { const b = document.getElementById('bSnd'); b.textContent = 
 document.getElementById('bSnd').onclick = () => { sndOn = !sndOn; try { localStorage.setItem('snd', sndOn ? '1' : '0'); } catch (e) {} syncSnd(); if (sndOn) { audio(); music(); } else clearInterval(musicT); };
 addEventListener('pointerdown', () => { if (!AC) { audio(); music(); } }, { once: true }); addEventListener('keydown', () => { if (!AC) { audio(); music(); } }, { once: true });
 syncSnd();
+function closeDlg() { document.getElementById('dlg').style.display = 'none'; }
+function showDlg(m) {
+  if (m.close) return closeDlg();
+  document.getElementById('dName').textContent = m.name; document.getElementById('dTitle').textContent = m.title; document.getElementById('dText').textContent = m.text;
+  const o = document.getElementById('dOpts'); o.innerHTML = '';
+  for (const op of m.opts) { const b = document.createElement('button'); b.textContent = op.l; b.onclick = () => send({ t: 'talkopt', id: m.id, opt: op.k }); o.appendChild(b); }
+  document.getElementById('dlg').style.display = 'block';
+}
 document.getElementById('bEnter').onclick = () => {
+  if (enterNpc) { if (panelOpen) togglePanel(); send({ t: 'talk', id: enterNpc }); return; }
   if (!enterTab) return;
   if (!panelOpen) togglePanel();
   tab = enterTab; syncTabs(); if (tab === 'powers') { prev = null; reqPrev(); } renderPanel();
@@ -1446,7 +1554,7 @@ function hud() {
   document.querySelector('#hp i').style.width = Math.max(0, me.hp / me.mh * 100) + '%';
   document.querySelector('#mp i').style.width = Math.max(0, me.mp / me.mm * 100) + '%';
   document.querySelector('#xp i').style.width = (me.xp / me.nx * 100) + '%';
-  document.getElementById('info').innerHTML = `Nv ${me.lvl} · HP ${me.hp}/${me.mh} · MP ${me.mp}<br>🪙 ${me.silver}${me.mt ? ' · 🐎' : ''}${me.fv ? ' · 🦅 ' + me.fv : ''}${me.cb > 1 ? ` · 🔥 Racha x${me.cb}` : ''}`;
+  document.getElementById('info').innerHTML = `Nv ${me.lvl} · Rango ${me.rk || 'F'} · HP ${me.hp}/${me.mh} · MP ${me.mp}<br>🪙 ${me.silver}${me.mt ? ' · 🐎' : ''}${me.fv ? ' · 🦅 ' + me.fv : ''}${me.cb > 1 ? ` · 🔥 Racha x${me.cb}` : ''}`;
 }
 
 // ================== Login ==================
@@ -1614,13 +1722,14 @@ function draw(t) {
   const ents = [];
   for (const b of (city ? city.buildings : [])) ents.push({ z: b.x + b.y + (b.w + b.d) / 2, k: 'bld', o: b });
   for (const r of resList) if (!deadRes.has(r.id) && Math.abs(r.x - cx) <= R && Math.abs(r.y - cy) <= R) ents.push({ z: r.x + r.y, k: 'res', o: r });
+  for (const q of npcs) ents.push({ z: q.x + q.y, k: 'npc', o: q });
   for (const b of bags) ents.push({ z: b.x + b.y, k: 'bag', o: b });
   for (const m of mobs.values()) ents.push({ z: m.rx + m.ry, k: 'mob', o: m });
   for (const p of players.values()) ents.push({ z: p.rx + p.ry, k: 'pl', o: p });
   ents.sort((a, b) => a.z - b.z);
   for (const e of ents) {
     const o = e.o;
-    if (e.k === 'bld') drawBld(o); else if (e.k === 'res') drawRes(o); else if (e.k === 'bag') drawBag(o, t); else if (e.k === 'mob') drawMob(o, t); else drawPlayer(o, t);
+    if (e.k === 'bld') drawBld(o); else if (e.k === 'res') drawRes(o); else if (e.k === 'npc') drawNpc(o, t); else if (e.k === 'bag') drawBag(o, t); else if (e.k === 'mob') drawMob(o, t); else drawPlayer(o, t);
   }
   // efectos
   const now = performance.now();
@@ -1678,7 +1787,10 @@ function draw(t) {
   for (let i = 0; i < 3; i++) document.getElementById('bP' + i).style.opacity = n < cdP[i] ? .45 : 1;
   const nb = city && city.buildings.find((b) => b.tab && mp.rx >= b.x - 2.5 && mp.rx <= b.x + b.w + 2.5 && mp.ry >= b.y - 2.5 && mp.ry <= b.y + b.d + 2.5);
   const eb = document.getElementById('bEnter');
-  if (nb) { enterTab = nb.tab; eb.textContent = 'Entrar: ' + nb.name; eb.style.display = 'block'; } else { enterTab = null; eb.style.display = 'none'; }
+  const nn = npcs.find((q) => Math.hypot(mp.rx - q.x, mp.ry - q.y) < 3.5);
+  if (nn) { enterNpc = nn.id; enterTab = null; eb.textContent = 'Hablar: ' + nn.name; eb.style.display = 'block'; }
+  else { enterNpc = null; if (nb) { enterTab = nb.tab; eb.textContent = 'Entrar: ' + nb.name; eb.style.display = 'block'; } else { enterTab = null; eb.style.display = 'none'; } }
+  if (!nn && document.getElementById('dlg').style.display === 'block') closeDlg();
   const zEl = document.getElementById('zone'), red = !safe;
   const rg = regionAt(mp.rx, mp.ry);
   zEl.textContent = (red ? '⚠ ' : '') + (rg ? rg.name + ' (T' + rg.tier + ')' : mapName); zEl.classList.toggle('red', red);
@@ -1720,7 +1832,17 @@ function drawMob(m, t) {
   ctx.fillStyle = '#ff4040'; ctx.fillRect(11, -18, 3, 3);
   ctx.restore();
   bar(p.x, p.y - 32 * z, 30 * Math.min(z, 1.6), m.hp / m.mh, m.k === 'jef' ? '#c43ad6' : '#d64545'); flagIcons(p.x, p.y - 38 * z, m.fl);
-  if (m.k === 'jef') { ctx.font = 'bold 12px system-ui'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.strokeText('JEFE', p.x, p.y - 32 * z - 8); ctx.fillStyle = '#ff9aef'; ctx.fillText('JEFE', p.x, p.y - 32 * z - 8); }
+  if (m.k === 'jef') { ctx.font = 'bold 12px system-ui'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.strokeText(m.nm || 'JEFE', p.x, p.y - 32 * z - 8); ctx.fillStyle = '#ff9aef'; ctx.fillText(m.nm || 'JEFE', p.x, p.y - 32 * z - 8); }
+}
+function drawNpc(n, t) {
+  const p = iso(n.x, n.y);
+  ctx.fillStyle = '#0005'; ctx.beginPath(); ctx.ellipse(p.x, p.y, 14, 7, 0, 0, 7); ctx.fill();
+  drawBody(ctx, p.x, p.y, { pw: n.look[0], au: n.look[1], tn: n.look[2], cl: n.look[3], rc: n.look[4] }, t, 0, n.name);
+  if (n.id === 'orion') { ctx.fillStyle = '#f1f1f1'; ctx.beginPath(); ctx.moveTo(p.x - 7, p.y - 31); ctx.lineTo(p.x + 7, p.y - 31); ctx.lineTo(p.x, p.y - 15); ctx.fill(); ctx.fillStyle = '#5b3d22'; ctx.beginPath(); ctx.moveTo(p.x - 14, p.y - 40); ctx.lineTo(p.x + 12, p.y - 43); ctx.lineTo(p.x + 7, p.y - 45); ctx.lineTo(p.x + 1, p.y - 56); ctx.lineTo(p.x - 7, p.y - 44); ctx.fill(); }
+  if (n.id === 'veyra') { ctx.fillStyle = '#8c929c'; ctx.fillRect(p.x - 9, p.y - 42, 18, 6); ctx.fillStyle = '#3a3f48'; ctx.fillRect(p.x - 4, p.y - 34, 2, 2); ctx.fillRect(p.x + 2, p.y - 34, 2, 2); }
+  ctx.font = 'bold 12px system-ui'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000';
+  ctx.strokeText(n.name, p.x, p.y - 62); ctx.fillStyle = '#9fe7ff'; ctx.fillText(n.name, p.x, p.y - 62);
+  ctx.font = '14px system-ui'; ctx.fillText('💬', p.x, p.y - 76 + Math.sin(t / 300) * 2);
 }
 function drawPlayer(o, t) {
   const p = iso(o.rx, o.ry), mine = o.id === myId;
