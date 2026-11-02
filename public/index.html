@@ -21,6 +21,9 @@
   #login{position:fixed;inset:0;display:flex;flex-direction:column;gap:12px;align-items:center;justify-content:center;background:#10141aee;z-index:20}
   #login h1{margin:0;font-size:28px;letter-spacing:1px}
   #login input[type=password]{font-size:18px;padding:12px 14px;border-radius:10px;border:1px solid #3a4658;background:#1a212b;color:#fff;width:240px;text-align:center;user-select:text;-webkit-user-select:text}
+  #fade{position:fixed;inset:0;background:#05070b;opacity:0;pointer-events:none;transition:opacity .35s;z-index:40;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;color:#e8ecf1}
+  #fade #fadeT{font-size:26px;letter-spacing:2px;font-weight:700}
+  #fade #fadeS{font-size:13px;opacity:.6}
   #dlg{position:fixed;left:50%;bottom:10px;transform:translateX(-50%);width:min(560px,calc(100% - 16px));max-height:62vh;overflow:auto;background:#10161fee;border:1px solid #4a5d7c;border-radius:14px;padding:12px 14px;z-index:25;display:none;font-size:14px}
   #dlg .nm{font-weight:700;font-size:16px;color:#9fe7ff}
   #dlg .tt{font-size:12px;opacity:.7;margin-bottom:6px}
@@ -142,6 +145,7 @@
 <button id="bEnter" style="display:none"></button>
 <div id="topbtns"><button id="bBag">🎒 Menú</button><button id="bChat">💬</button><button id="bSnd">🔊</button></div>
 <div id="chatlog"></div>
+<div id="fade"><div id="fadeT"></div><div id="fadeS"></div></div>
 <div id="dlg"><div class="nm" id="dName"></div><div class="tt" id="dTitle"></div><div class="tx" id="dText"></div><div class="op" id="dOpts"></div></div>
 
 <div id="pbtns"><button id="bP0">＋</button><button id="bP1">＋</button><button id="bP2">＋</button></div>
@@ -232,9 +236,11 @@ function onMsg(m) {
     case 'init':
       myId = m.id; window.myName = m.nm; W = m.W; H = m.H; mapName = m.mapName; biome = m.biome; safe = m.safe; links = m.links || []; regions = m.regions || null; npcs = m.npcs || []; closeDlg(); recipes = m.recipes; items = m.items; resList = m.res; pp = m.pp;
       players.clear(); mobs.clear(); bags = []; fx = []; deadRes = new Set();
-      city = m.city; document.getElementById('login').style.display = 'none'; document.getElementById('creator').style.display = 'none'; break;
-    case 'auth': pp = m.pp; races = m.races; chars = m.chars; maxChars = m.max; if (m.created) send({ t: 'join', name: m.created }); else if (chars.length) showChars(); else showCreator(); break;
-    case 'err':
+      city = m.city; for (const k of ['login', 'creator', 'chars']) document.getElementById(k).style.display = 'none';
+      { const f = document.getElementById('fade'); if (f.style.opacity !== '1') { f.style.transition = 'none'; f.style.opacity = 1; f.style.pointerEvents = 'auto'; void f.offsetWidth; } document.getElementById('fadeT').textContent = m.mapName; document.getElementById('fadeS').textContent = ''; fadeOut(900); }
+      break;
+    case 'auth': pp = m.pp; races = m.races; chars = m.chars; maxChars = m.max; if (m.created) { fadeIn('Entrando al mundo…'); send({ t: 'join', name: m.created }); } else if (chars.length) showChars(); else showCreator(); break;
+    case 'err': fadeOut();
       if (document.getElementById('creator').style.display === 'flex') document.getElementById('cErr').textContent = m.m;
       else { document.getElementById('loginErr').textContent = m.m; show('login'); }
       break;
@@ -398,6 +404,8 @@ function syncSnd() { const b = document.getElementById('bSnd'); b.textContent = 
 document.getElementById('bSnd').onclick = () => { sndOn = !sndOn; try { localStorage.setItem('snd', sndOn ? '1' : '0'); } catch (e) {} syncSnd(); if (sndOn) { audio(); music(); } else clearInterval(musicT); };
 addEventListener('pointerdown', () => { if (!AC) { audio(); music(); } }, { once: true }); addEventListener('keydown', () => { if (!AC) { audio(); music(); } }, { once: true });
 syncSnd();
+function fadeIn(t, s) { const f = document.getElementById('fade'); document.getElementById('fadeT').textContent = t || ''; document.getElementById('fadeS').textContent = s || ''; f.style.transition = 'opacity .35s'; f.style.opacity = 1; f.style.pointerEvents = 'auto'; }
+function fadeOut(delay) { setTimeout(() => { const f = document.getElementById('fade'); f.style.transition = 'opacity .9s'; f.style.opacity = 0; f.style.pointerEvents = 'none'; }, delay || 0); }
 function closeDlg() { document.getElementById('dlg').style.display = 'none'; }
 function showDlg(m) {
   if (m.close) return closeDlg();
@@ -641,7 +649,7 @@ function showChars() {
     const b = document.createElement('button'); b.className = 'sel';
     const rc = races[ch.look[4]] || { ico: '🧑', name: '' };
     b.innerHTML = `${rc.ico} <b>${esc(ch.name)}</b> <small>· ${rc.name} · ${pp.parts.src[ch.look[0]].ico} · Nv ${ch.lvl}</small>`;
-    b.onclick = () => send({ t: 'join', name: ch.name });
+    b.onclick = () => { fadeIn(ch.name, 'Entrando al mundo…'); send({ t: 'join', name: ch.name }); };
     const d = document.createElement('button'); d.textContent = '🗑'; d.style.width = '46px';
     d.onclick = () => { if (confirm('¿Borrar a ' + ch.name + '? Se pierde todo su progreso.')) send({ t: 'delchar', name: ch.name }); };
     row.append(b, d); l.appendChild(row);
